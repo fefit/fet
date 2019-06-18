@@ -1,10 +1,11 @@
 package generator
 
 import (
-	exp "fet/lib/expression"
-	t "fet/types"
 	"strconv"
 	"strings"
+
+	exp "github.com/fefit/fet/lib/expression"
+	t "github.com/fefit/fet/types"
 )
 
 type Node = exp.Node
@@ -18,6 +19,7 @@ type Generator struct {
 var (
 	operatorFnNames = map[string]string{
 		"||":      "or",
+		"&&":      "and",
 		"!":       "not",
 		">=":      "ge",
 		">":       "gt",
@@ -25,7 +27,6 @@ var (
 		"<":       "lt",
 		"<=":      "le",
 		"!=":      "ne",
-		"&&":      "INJECT_AND",
 		"+":       "INJECT_PLUS",
 		"-":       "INJECT_MINUS",
 		"*":       "INJECT_MULTIPLE",

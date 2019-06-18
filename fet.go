@@ -1,13 +1,12 @@
 package fet
 
 import (
+	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
-	"fet/lib/expression"
-	"fet/lib/generator"
-	"fet/utils"
 	"fmt"
+	"html/template"
 	"io/ioutil"
 	"os"
 	"path"
@@ -15,6 +14,11 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+
+	"github.com/fefit/fet/lib/expression"
+	"github.com/fefit/fet/lib/funcs"
+	"github.com/fefit/fet/lib/generator"
+	"github.com/fefit/fet/utils"
 )
 
 // Type type
@@ -485,6 +489,7 @@ type Fet struct {
 	gen         *generator.Generator
 	datas       map[string]interface{}
 	cwd         string
+	tmpl        *template.Template
 }
 
 func mergeConfig(options *Config) *Config {
@@ -545,9 +550,12 @@ func New(config *Config) (fet *Fet, err error) {
 		datas:  make(map[string]interface{}),
 		cwd:    cwd,
 	}
+	tmpl := template.New("root")
+	tmpl = tmpl.Funcs(funcs.Inject())
+	tmpl = tmpl.Funcs(funcs.Helpers())
+	fet.tmpl = tmpl
 	fet.compileDir = fet.getLastDir(config.CompileDir)
 	fet.templateDir = fet.getLastDir(config.TemplateDir)
-	fmt.Println(fet.compileDir, fet.templateDir)
 	return fet, nil
 }
 func ltrimIndex(strs *Runes, i int, total int) int {
@@ -790,35 +798,37 @@ LOOP:
 					if isTagEnd {
 						// start
 						node.IsClosed = true
-						node.EndIndex = curIndex
+						node.EndIndex = curIndex + 1
 						isUnknownType := node.Type == UnknownType
 						if node.Type == BlockEndType || isUnknownType {
 							name := rtrim(&strs, markIndex+1, i)
 							block := getLastBlock()
+							setOutputType := func() {
+								node.Type = OutputType
+								node.Content = name
+								setFeatureChild(node)
+								initToStart()
+							}
 							if block == nil {
 								if isUnknownType {
 									if name == "" {
 										err = node.halt("empty tag")
+										break
 									} else {
-										node.Type = OutputType
-										node.Content = name
-										setFeatureChild(node)
+										setOutputType()
 									}
 								} else {
 									err = node.halt("wrong end tag \"%s\"", name)
+									break
 								}
-								break
 							} else {
 								if isUnknownType {
 									if curType, exists := supportTags[name]; exists && curType == BlockFeatureType {
 										node.Name = name
 										resetGlobals(block)
 										block.AddFeature(node)
-										closeTag(node, curIndex)
 									} else {
-										node.Type = OutputType
-										node.Content = name
-										setFeatureChild(node)
+										setOutputType()
 									}
 								} else {
 									if block.Name != name {
@@ -826,7 +836,6 @@ LOOP:
 										break
 									} else {
 										node.Name = name
-										closeTag(node, curIndex)
 										closeTag(block, curIndex)
 										if name == "block" {
 											isInBlockTag = false
@@ -962,7 +971,7 @@ LOOP:
 	if block := getLastBlock(); block != nil {
 		return nil, block.halt("unclosed block tag\"%s\"", block.Name)
 	}
-	if node != nil && !node.IsClosed {
+	if node != nil {
 		if node.Type != TextType {
 			return nil, node.halt("unclosed tag\"%s\"", node.Content)
 		}
@@ -976,14 +985,22 @@ LOOP:
 	}, nil
 }
 
-// Display method
-func (fet *Fet) Display(tplpath string) {
-
-}
-
-// Assign method
-func (fet *Fet) Assign(name string, value interface{}) {
-
+// Fetch method
+func (fet *Fet) Fetch(tpl string, data interface{}) (err error) {
+	tmpl := fet.tmpl
+	if code, cErr := fet.Compile(tpl, false); err != nil {
+		err = cErr
+	} else {
+		t, pErr := template.Must(tmpl.Clone()).Parse(code)
+		if pErr != nil {
+			err = cErr
+		} else {
+			buf := new(bytes.Buffer)
+			err = t.Execute(buf, data)
+			fmt.Println(buf.String())
+		}
+	}
+	return
 }
 
 func contains(arr []string, key string) bool {
@@ -1093,6 +1110,7 @@ func (fet *Fet) compileFileContent(tpl string, options *CompileOptions) (string,
 		errs error
 	)
 	options.File = tpl
+
 	for _, node := range nl.Queues {
 		if code, errs = node.Compile(options); errs != nil {
 			return "", errs
@@ -1119,7 +1137,7 @@ func (fet *Fet) getLastDir(dir string) string {
 }
 
 // Compile file
-func (fet *Fet) Compile(tpl string) error {
+func (fet *Fet) Compile(tpl string, writeFile bool) (string, error) {
 	var (
 		result string
 		err    error
@@ -1136,31 +1154,35 @@ func (fet *Fet) Compile(tpl string) error {
 		Includes:     &includes,
 		Extends:      &extends,
 	}
-	defer func() {
-		if err != nil {
-			fmt.Println("compile fail:", err.Error())
-		} else {
-			fmt.Println("compile success")
-		}
-	}()
-	fmt.Println("compile file:", tplFile, "--->", compileFile)
+	if writeFile {
+		defer func() {
+			if err != nil {
+				fmt.Println("compile fail:", err.Error())
+			} else {
+				fmt.Println("compile success")
+			}
+		}()
+		fmt.Println("compile file:", tplFile, "--->", compileFile)
+	}
 	if result, err = fet.compileFileContent(tplFile, options); err != nil {
-		return err
+		return "", err
 	}
-	dir := path.Dir(compileFile)
-	if _, err = os.Stat(dir); err != nil {
-		if os.IsNotExist(err) {
-			err = os.MkdirAll(dir, os.ModePerm)
+	if writeFile {
+		dir := path.Dir(compileFile)
+		if _, err = os.Stat(dir); err != nil {
+			if os.IsNotExist(err) {
+				err = os.MkdirAll(dir, os.ModePerm)
+			}
+			if err != nil {
+				return "", fmt.Errorf("can not open the compile dir:" + dir)
+			}
 		}
+		err = ioutil.WriteFile(compileFile, []byte(result), 0644)
 		if err != nil {
-			return fmt.Errorf("can not open the compile dir:" + dir)
+			return "", fmt.Errorf("compile file '" + compileFile + "' failure:" + err.Error())
 		}
 	}
-	err = ioutil.WriteFile(compileFile, []byte(result), 0644)
-	if err != nil {
-		return fmt.Errorf("compile file '" + compileFile + "' failure:" + err.Error())
-	}
-	return nil
+	return result, nil
 }
 
 func (fet *Fet) isIgnoreFile(tpl string) bool {
@@ -1200,7 +1222,8 @@ func (fet *Fet) CompileAll() error {
 		return nil
 	}
 	if total == 1 {
-		return fet.Compile(files[0])
+		_, err := fet.Compile(files[0], true)
+		return err
 	}
 	var (
 		wg   sync.WaitGroup
@@ -1209,7 +1232,7 @@ func (fet *Fet) CompileAll() error {
 	wg.Add(total)
 	go func() {
 		for _, tpl := range files {
-			err := fet.Compile(tpl)
+			_, err := fet.Compile(tpl, true)
 			if err != nil {
 				errs = append(errs, err.Error())
 			}

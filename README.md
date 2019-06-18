@@ -81,7 +81,7 @@ import "fet"
 func main(){
   conf := &fet.Config{
     TemplateDir: "tmpls", //  default "templates"
-    CompileDir: "views", // default "templates",
+    CompileDir: "views", // default "templates_c",
     Ignores: []string{"inc/*"}, // ignore compile paths,files that only will include.use filepath.Match
     Ucfirst: true, // default true, will translate map keys to uppercase.
   }
