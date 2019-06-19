@@ -40,7 +40,8 @@ type Config struct {
 	CommentSymbol  string
 	TemplateDir    string
 	CompileDir     string
-	Ucfirst        bool
+	LowerField     bool
+	CompileOnline  bool
 	Ignores        []string
 }
 
@@ -133,7 +134,8 @@ var (
 		CommentSymbol:  "*",
 		TemplateDir:    "templates",
 		CompileDir:     "templates_c",
-		Ucfirst:        true,
+		CompileOnline:  false,
+		LowerField:     false,
 		Ignores:        []string{"inc/*"},
 	}
 	supportTags = map[string]Type{
@@ -246,7 +248,6 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 		}
 	case BlockStartType:
 		if name == "for" {
-
 			props := node.Props
 			target := props["list"].Raw
 			ast, expErr := exp.Parse(target)
@@ -496,14 +497,20 @@ type Fet struct {
 func mergeConfig(options *Config) *Config {
 	conf := &Config{}
 	*conf = *defConfig
-	if options.Ucfirst {
-		conf.Ucfirst = options.Ucfirst
+	if options.LowerField {
+		conf.LowerField = true
 	}
 	if options.TemplateDir != "" {
 		conf.TemplateDir = options.TemplateDir
 	}
 	if options.CompileDir != "" {
 		conf.CompileDir = options.CompileDir
+	}
+	if options.CompileOnline {
+		conf.CompileOnline = true
+	}
+	if options.Ignores != nil {
+		conf.Ignores = options.Ignores
 	}
 	return conf
 }
@@ -534,7 +541,7 @@ func New(config *Config) (fet *Fet, err error) {
 		matchEndTag:       buildMatchTagFn(len(rd), &rd),
 	}
 	gen := generator.New(&generator.GenConf{
-		Ucfirst: config.Ucfirst,
+		Ucfirst: !config.LowerField,
 	})
 	exp := expression.New()
 	cwd, err := os.Executable()
@@ -832,6 +839,7 @@ LOOP:
 								if isUnknownType {
 									if curType, exists := supportTags[name]; exists && curType == BlockFeatureType {
 										node.Name = name
+										node.Type = BlockFeatureType
 										popGlobals(block)
 										block.AddFeature(node)
 									} else {
@@ -992,19 +1000,52 @@ LOOP:
 	}, nil
 }
 
+// Display method
+func (fet *Fet) Display(tpl string, data interface{}) (err error) {
+	conf := fet.Config
+	if conf.CompileOnline {
+		var result string
+		if result, err = fet.Fetch(tpl, data); err == nil {
+			_, err = os.Stdout.Write([]byte(result))
+		}
+		return err
+	}
+	compileFile := fet.getRealTplPath(tpl, fet.compileDir)
+	if _, err = os.Stat(compileFile); err != nil {
+		if os.IsNotExist(err) {
+			err = fmt.Errorf("the compile file '%s' is not exist", compileFile)
+		}
+		return err
+	}
+	tmpl := fet.tmpl
+	if buf, rErr := ioutil.ReadFile(compileFile); rErr != nil {
+		err = rErr
+	} else {
+		t, pErr := tmpl.Parse(string(buf))
+		if pErr != nil {
+			err = pErr
+		} else {
+			err = t.Execute(os.Stdout, data)
+		}
+	}
+	return err
+}
+
 // Fetch method
-func (fet *Fet) Fetch(tpl string, data interface{}) (err error) {
+func (fet *Fet) Fetch(tpl string, data interface{}) (result string, err error) {
 	tmpl := fet.tmpl
 	if code, cErr := fet.Compile(tpl, false); err != nil {
 		err = cErr
 	} else {
-		t, pErr := template.Must(tmpl.Clone()).Parse(code)
+		t, pErr := tmpl.Parse(code)
 		if pErr != nil {
 			err = pErr
 		} else {
 			buf := new(bytes.Buffer)
 			err = t.Execute(buf, data)
-			fmt.Println("OUTPUT:", buf.String())
+			if err == nil {
+				result = buf.String()
+			}
 		}
 	}
 	return
@@ -1117,7 +1158,6 @@ func (fet *Fet) compileFileContent(tpl string, options *CompileOptions) (string,
 		errs error
 	)
 	options.File = tpl
-
 	for _, node := range nl.Queues {
 		if code, errs = node.Compile(options); errs != nil {
 			return "", errs

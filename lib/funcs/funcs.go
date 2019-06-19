@@ -46,6 +46,7 @@ func Inject() template.FuncMap {
 	injects["INJECT_BITXOR"] = generateIntFunc(func(a, b int64) int64 {
 		return a ^ b
 	})
+	injects["INJECT_TO_FLOAT"] = toFloat
 	return injects
 }
 

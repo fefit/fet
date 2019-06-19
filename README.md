@@ -72,7 +72,7 @@ it's more like the php template engineer smarty.
 
 ### [内置的函数]Func Maps
 
-### [项目中使用]Use in project
+### [示例代码]Demo code
 ```go
 package main
 
@@ -83,7 +83,8 @@ func main(){
     TemplateDir: "tmpls", //  default "templates"
     CompileDir: "views", // default "templates_c",
     Ignores: []string{"inc/*"}, // ignore compile paths,files that only will include.use filepath.Match
-    Ucfirst: true, // default true, will translate map keys to uppercase.
+    LowerField: true, // default false, if true will not translate keys to uppercase.
+    CompileOnline: false, // default false, you should compile your template files offline 
   }
   fet, _ := fet.New(conf)
   // compile all files
@@ -93,7 +94,43 @@ func main(){
   // fet.Display(tpl, data)
 }
 ```
+### API 
+- `fet.Compile(tpl string, createFile bool) (result string, err error) `  
 
+  compile a template file, if `createFile` is true, will create the compiled file.  
+
+  编译单个文件，如果createFile参数设为true，将生成对应的编译文件到编译目录里，文件的相对目录路径和原始的fet模板文件相对路径保持一致。
+
+- `fet.CompileAll() error`  
+  
+  compile all files need to compile.  
+
+  编译所有需要编译的文件，除了那些在Ignores配置中设置了无需编译的文件。
+
+- `fet.Display(tpl string, data interface{}) error`
+
+  render the parsed code into `io.Stdout`,output it.  
+
+  将模板文件渲染后的结果输出显示。
+
+- `fet.Fetch(tpl string, data interface{}) (result string, err error)`
+
+  just get the parsed `string` code, it always use `CompileOnline` mode.  
+
+  获取模板文件渲染后的代码，始终按当前fet模板文件的内容编译，然后渲染得到结果。
+
+## [如何在项目中使用]Use in project
+
+1. [仅编译模式] `compile mode`  
+    just use fet compile your template files offline, and add the FuncMap `lib/funcs/func.go` to `html/template` struct.
+
+    在项目中，使用fet的方式来编写模板，然后将编写好的模板编译到项目中，引入`lib/funcs/func.go`里写好的通用方法，由go后端同学注册进去，走线下编译模式。
+
+2. [安装模式] `install mode`  
+
+    install `fet`,and use `fet.Display(tpl)` to render the template file.
+
+    将fet安装到项目中，同时需要将fet打包到项目内上线，使用fet的api来渲染输出模板。
 
 ## License
 

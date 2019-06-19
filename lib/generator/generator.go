@@ -22,27 +22,43 @@ type Generator struct {
 	Conf *GenConf
 }
 
+type opFnNames map[string]string
+
+const (
+	// SPACE FOR
+	SPACE     = " "
+	toFloatFn = "INJECT_TO_FLOAT"
+)
+
 var (
-	operatorFnNames = map[string]string{
-		"||":      "or",
-		"&&":      "and",
-		"!":       "not",
-		">=":      "ge",
-		">":       "gt",
-		"==":      "eq",
-		"<":       "lt",
-		"<=":      "le",
-		"!=":      "ne",
-		"+":       "INJECT_PLUS",
-		"-":       "INJECT_MINUS",
-		"*":       "INJECT_MULTIPLE",
-		"/":       "INJECT_DIVIDE",
-		"%":       "INJECT_MOD",
-		"&":       "INJECT_BITAND",
-		" bitor ": "INJECT_BITOR",
-		"^":       "INJECT_BITXOR",
-		"**":      "INJECT_POWER",
+	compareFnNames = opFnNames{
+		">=": "ge",
+		">":  "gt",
+		"==": "eq",
+		"<":  "lt",
+		"<=": "le",
+		"!=": "ne",
 	}
+	operatorFnNames = func() opFnNames {
+		ops := opFnNames{
+			"||":      "or",
+			"&&":      "and",
+			"!":       "not",
+			"+":       "INJECT_PLUS",
+			"-":       "INJECT_MINUS",
+			"*":       "INJECT_MULTIPLE",
+			"/":       "INJECT_DIVIDE",
+			"%":       "INJECT_MOD",
+			"&":       "INJECT_BITAND",
+			" bitor ": "INJECT_BITOR",
+			"^":       "INJECT_BITXOR",
+			"**":      "INJECT_POWER",
+		}
+		for key, name := range compareFnNames {
+			ops[key] = name
+		}
+		return ops
+	}()
 	literalSymbols = map[string]string{
 		"true":  "true",
 		"false": "false",
@@ -59,8 +75,20 @@ func (gen *Generator) Build(node *Node, nsFn t.NamespaceFn) string {
 	return str.String()
 }
 
+func (gen *Generator) wrapToFloat(node *Node, nsFn t.NamespaceFn, str *strings.Builder, isNative bool) {
+	if isNative {
+		str.WriteString("(")
+		str.WriteString(toFloatFn)
+		str.WriteString(SPACE)
+	}
+	gen.parseRecursive(node, nsFn, str)
+	if isNative {
+		str.WriteString(")")
+	}
+}
+
 // parse identifier
-func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, isSubField bool, str *strings.Builder) {
+func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, str *strings.Builder, isSubField bool) {
 	conf := gen.Conf
 	if val, ok := literalSymbols[name]; ok {
 		if isSubField {
@@ -89,7 +117,6 @@ func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, isSubFiel
 func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *strings.Builder) {
 	curType := node.Type
 	conf := gen.Conf
-	space := " "
 	if curType == "raw" {
 		token := node.Token
 		stat := token.GetStat()
@@ -100,18 +127,18 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 			str.WriteString(strconv.FormatFloat(t.ToNumber(), 'f', -1, 64))
 		case *exp.IdentifierToken:
 			name := string(stat.Values)
-			gen.parseIdentifier(name, nsFn, false, str)
+			gen.parseIdentifier(name, nsFn, str, false)
 		}
 	} else if curType == "object" {
 		args := node.Arguments
 		total := len(args)
 		str.WriteString("(index ")
 		gen.parseRecursive(node.Root, nsFn, str)
-		str.WriteString(space)
+		str.WriteString(SPACE)
 		for i := 0; i < total; i++ {
 			cur := args[i]
 			curType := cur.Type
-			str.WriteString(space)
+			str.WriteString(SPACE)
 			if curType == "raw" {
 				token := cur.Token
 				if t, ok := token.(*exp.StringToken); ok {
@@ -134,7 +161,7 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 						str.WriteString(ident)
 						str.WriteString("\"")
 					} else {
-						gen.parseIdentifier(ident, nsFn, true, str)
+						gen.parseIdentifier(ident, nsFn, str, true)
 					}
 				} else {
 					gen.parseRecursive(cur, nsFn, str)
@@ -149,24 +176,28 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 		args := node.Arguments
 		str.WriteString("(")
 		gen.parseRecursive(root, nsFn, str)
-		str.WriteString(space)
+		str.WriteString(SPACE)
 		for i, total := 0, len(args); i < total; i++ {
 			if i > 0 {
-				str.WriteString(space)
+				str.WriteString(SPACE)
 			}
 			gen.parseRecursive(args[i], nsFn, str)
 		}
 		str.WriteString(")")
 	} else {
 		op := node.Operator
+		isNativeCompare := false
 		if name, ok := operatorFnNames[op]; ok {
+			if _, ok := compareFnNames[op]; ok {
+				isNativeCompare = true
+			}
 			str.WriteString("(")
 			str.WriteString(name)
-			str.WriteString(space)
+			str.WriteString(SPACE)
 		}
-		gen.parseRecursive(node.Left, nsFn, str)
-		str.WriteString(space)
-		gen.parseRecursive(node.Right, nsFn, str)
+		gen.wrapToFloat(node.Left, nsFn, str, isNativeCompare)
+		str.WriteString(SPACE)
+		gen.wrapToFloat(node.Right, nsFn, str, isNativeCompare)
 		str.WriteString(")")
 	}
 }
