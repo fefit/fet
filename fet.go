@@ -212,11 +212,14 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			err = toError(expErr)
 		} else {
 			//
-			code := gen.Build(ast, namespace)
 			if node.Type == AssignType {
-				result = ld + "$" + name + localNS + ":=" + code + rd
+				if _, ok := generator.LiteralSymbols[name]; ok {
+					err = fmt.Errorf("synatax error: can not set literal '%s' as a variable", name)
+					break
+				}
+				result = ld + "$" + name + localNS + ":=" + gen.Build(ast, namespace) + rd
 			} else {
-				result = "{{" + code + "}}"
+				result = "{{" + gen.Build(ast, namespace) + "}}"
 			}
 		}
 	case SingleType:
@@ -559,8 +562,7 @@ func New(config *Config) (fet *Fet, err error) {
 		cwd:    cwd,
 	}
 	tmpl := template.New("root")
-	tmpl = tmpl.Funcs(funcs.Inject())
-	tmpl = tmpl.Funcs(funcs.Helpers())
+	tmpl = tmpl.Funcs(funcs.All())
 	fet.tmpl = tmpl
 	fet.compileDir = fet.getLastDir(config.CompileDir)
 	fet.templateDir = fet.getLastDir(config.TemplateDir)
@@ -649,19 +651,11 @@ func (fet *Fet) parse(codes string, pwd string) (result *NodeList, err error) {
 			}
 		}
 	}
-	reGlobals := func(scopes []string) {
-		globals = append([]string{}, scopes...)
-	}
-	resetGlobals := func() {
-		reGlobals(globals)
-	}
 	popGlobals := func(block *Node) {
 		prevFeature := block.Current
 		locals := prevFeature.LocalScopes
 		if locals != nil {
-			reGlobals(globals[:len(globals)-len(locals)])
-		} else {
-			resetGlobals()
+			globals = globals[:len(globals)-len(locals)]
 		}
 	}
 	strs := Runes(codes)
@@ -791,7 +785,6 @@ LOOP:
 									current := block.Current
 									current.LocalScopes = append(current.LocalScopes, name)
 								}
-								resetGlobals()
 								globals = append(globals, name)
 							}
 							continue
@@ -876,7 +869,6 @@ LOOP:
 								props := node.Props
 								itemProp := props["item"]
 								keyProp := props["key"]
-								resetGlobals()
 								globals = append(globals, itemProp.Raw)
 								node.LocalScopes = append(node.LocalScopes, itemProp.Raw)
 								if keyProp.Raw != "_" {
@@ -912,7 +904,6 @@ LOOP:
 					break
 				}
 				next := string(strs[nextIndex])
-				resetGlobals()
 				node = &Node{
 					Indexs: Indexs{
 						StartIndex: i,
@@ -961,7 +952,6 @@ LOOP:
 		}
 		// not start,not end,but new start
 		if node == nil {
-			resetGlobals()
 			node = &Node{
 				Type: TextType,
 				Indexs: Indexs{

@@ -59,7 +59,7 @@ var (
 		}
 		return ops
 	}()
-	literalSymbols = map[string]string{
+	LiteralSymbols = map[string]string{
 		"true":  "true",
 		"false": "false",
 		"null":  "nil",
@@ -87,11 +87,20 @@ func (gen *Generator) wrapToFloat(node *Node, nsFn t.NamespaceFn, str *strings.B
 	}
 }
 
+type FieldType int
+
+const (
+	ObjectRoot FieldType = iota
+	ObjectField
+	FuncName
+	ExpName
+)
+
 // parse identifier
-func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, str *strings.Builder, isSubField bool) {
+func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, str *strings.Builder, fieldType FieldType) {
 	conf := gen.Conf
-	if val, ok := literalSymbols[name]; ok {
-		if isSubField {
+	if val, ok := LiteralSymbols[name]; ok {
+		if fieldType != ExpName {
 			panic(fmt.Sprint("synatax error: unexpect token ", name))
 		} else {
 			str.WriteString(val)
@@ -103,11 +112,11 @@ func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, str *stri
 			str.WriteString(name)
 			str.WriteString(suffix)
 		} else {
-			if conf.Ucfirst {
-				name = strings.Title(name)
-			}
-			if !isSubField {
+			if fieldType != FuncName {
 				str.WriteString(".")
+				if conf.Ucfirst {
+					name = strings.Title(name)
+				}
 			}
 			str.WriteString(name)
 		}
@@ -127,13 +136,23 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 			str.WriteString(strconv.FormatFloat(t.ToNumber(), 'f', -1, 64))
 		case *exp.IdentifierToken:
 			name := string(stat.Values)
-			gen.parseIdentifier(name, nsFn, str, false)
+			gen.parseIdentifier(name, nsFn, str, ExpName)
 		}
 	} else if curType == "object" {
 		args := node.Arguments
 		total := len(args)
 		str.WriteString("(index ")
-		gen.parseRecursive(node.Root, nsFn, str)
+		root := node.Root
+		isParsed := false
+		if root.Type == "raw" {
+			if t, ok := root.Token.(*exp.IdentifierToken); ok {
+				gen.parseIdentifier(string(t.Stat.Values), nsFn, str, ObjectRoot)
+				isParsed = true
+			}
+		}
+		if !isParsed {
+			gen.parseRecursive(root, nsFn, str)
+		}
 		str.WriteString(SPACE)
 		for i := 0; i < total; i++ {
 			cur := args[i]
@@ -161,7 +180,7 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 						str.WriteString(ident)
 						str.WriteString("\"")
 					} else {
-						gen.parseIdentifier(ident, nsFn, str, true)
+						gen.parseIdentifier(ident, nsFn, str, ObjectField)
 					}
 				} else {
 					gen.parseRecursive(cur, nsFn, str)
@@ -175,7 +194,16 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 		root := node.Root
 		args := node.Arguments
 		str.WriteString("(")
-		gen.parseRecursive(root, nsFn, str)
+		isParsed := false
+		if root.Type == "raw" {
+			if t, ok := root.Token.(*exp.IdentifierToken); ok {
+				gen.parseIdentifier(string(t.Stat.Values), nsFn, str, FuncName)
+				isParsed = true
+			}
+		}
+		if !isParsed {
+			gen.parseRecursive(root, nsFn, str)
+		}
 		str.WriteString(SPACE)
 		for i, total := 0, len(args); i < total; i++ {
 			if i > 0 {

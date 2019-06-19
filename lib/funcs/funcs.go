@@ -17,6 +17,14 @@ type ResultFloatFn func(args ...interface{}) float64
 type ResultIntFn func(args ...interface{}) int64
 type JSON map[string]interface{}
 
+func All() template.FuncMap {
+	injects := Inject()
+	helpers := Helpers()
+	for key, fn := range injects {
+		helpers[key] = fn
+	}
+	return helpers
+}
 func Inject() template.FuncMap {
 	injects := template.FuncMap{}
 	injects["INJECT_PLUS"] = generateFloatFunc(func(a, b float64) float64 {
@@ -61,6 +69,18 @@ func Helpers() template.FuncMap {
 	helpers["concat"] = concat
 	helpers["json_encode"] = jsonEncode
 	helpers["concat"] = concat
+	helpers["min"] = generateFloatFunc(func(a, b float64) float64 {
+		if a > b {
+			return b
+		}
+		return a
+	})
+	helpers["max"] = generateFloatFunc(func(a, b float64) float64 {
+		if a > b {
+			return a
+		}
+		return b
+	})
 	return helpers
 }
 
