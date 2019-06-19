@@ -186,7 +186,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	ld, rd := fet.LeftDelimiter, fet.RightDelimiter
 	parentScopes, localScopes := options.ParentScopes, options.LocalScopes
 	parentNS, localNS := options.ParentNS, options.LocalNS
-	copyScopes := (*localScopes)[:]
+	copyScopes := append([]string{}, *localScopes...)
 	currentScopes := append(copyScopes, node.GlobalScopes...)
 	namespace := func(name string) (bool, string) {
 		if contains(currentScopes, name) {
@@ -205,7 +205,6 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	case TextType:
 		result = strings.TrimSpace(content)
 	case AssignType, OutputType:
-		// fmt.Println("content", content)
 		ast, expErr := exp.Parse(content)
 		if expErr != nil {
 			err = toError(expErr)
@@ -247,6 +246,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 		}
 	case BlockStartType:
 		if name == "for" {
+
 			props := node.Props
 			target := props["list"].Raw
 			ast, expErr := exp.Parse(target)
@@ -254,7 +254,8 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				err = toError(expErr)
 			} else {
 				code := gen.Build(ast, namespace)
-				result = "{{range $" + props["key"].Raw + ", $" + props["item"].Raw + " := " + code + "}}"
+				key := props["key"].Raw
+				result = "{{range $" + key + ", $" + props["item"].Raw + " := " + code + "}}"
 			}
 		} else if name == "if" {
 			ast, expErr := exp.Parse(content)
@@ -641,13 +642,19 @@ func (fet *Fet) parse(codes string, pwd string) (result *NodeList, err error) {
 			}
 		}
 	}
-	resetGlobals := func(block *Node) {
+	reGlobals := func(scopes []string) {
+		globals = append([]string{}, scopes...)
+	}
+	resetGlobals := func() {
+		reGlobals(globals)
+	}
+	popGlobals := func(block *Node) {
 		prevFeature := block.Current
 		locals := prevFeature.LocalScopes
 		if locals != nil {
-			globals = globals[:len(globals)-len(locals)]
+			reGlobals(globals[:len(globals)-len(locals)])
 		} else {
-			globals = globals[:]
+			resetGlobals()
 		}
 	}
 	strs := Runes(codes)
@@ -736,7 +743,7 @@ LOOP:
 								node.Parent = pnode
 							case BlockFeatureType:
 								if block != nil {
-									resetGlobals(block)
+									popGlobals(block)
 									node.GlobalScopes = globals
 									block.AddFeature(node)
 								} else {
@@ -777,7 +784,7 @@ LOOP:
 									current := block.Current
 									current.LocalScopes = append(current.LocalScopes, name)
 								}
-								globals = globals[:]
+								resetGlobals()
 								globals = append(globals, name)
 							}
 							continue
@@ -825,7 +832,7 @@ LOOP:
 								if isUnknownType {
 									if curType, exists := supportTags[name]; exists && curType == BlockFeatureType {
 										node.Name = name
-										resetGlobals(block)
+										popGlobals(block)
 										block.AddFeature(node)
 									} else {
 										setOutputType()
@@ -844,7 +851,7 @@ LOOP:
 											node.Content = current.Content
 											current.Childs = queues[blockStartIndex:len(queues)]
 										}
-										resetGlobals(block)
+										popGlobals(block)
 										blocks = blocks[:len(blocks)-1]
 									}
 								}
@@ -861,7 +868,7 @@ LOOP:
 								props := node.Props
 								itemProp := props["item"]
 								keyProp := props["key"]
-								globals = globals[:]
+								resetGlobals()
 								globals = append(globals, itemProp.Raw)
 								node.LocalScopes = append(node.LocalScopes, itemProp.Raw)
 								if keyProp.Raw != "_" {
@@ -897,7 +904,7 @@ LOOP:
 					break
 				}
 				next := string(strs[nextIndex])
-				globals := globals[:]
+				resetGlobals()
 				node = &Node{
 					Indexs: Indexs{
 						StartIndex: i,
@@ -946,7 +953,7 @@ LOOP:
 		}
 		// not start,not end,but new start
 		if node == nil {
-			globals := globals[:]
+			resetGlobals()
 			node = &Node{
 				Type: TextType,
 				Indexs: Indexs{
@@ -993,11 +1000,11 @@ func (fet *Fet) Fetch(tpl string, data interface{}) (err error) {
 	} else {
 		t, pErr := template.Must(tmpl.Clone()).Parse(code)
 		if pErr != nil {
-			err = cErr
+			err = pErr
 		} else {
 			buf := new(bytes.Buffer)
 			err = t.Execute(buf, data)
-			fmt.Println(buf.String())
+			fmt.Println("OUTPUT:", buf.String())
 		}
 	}
 	return

@@ -88,7 +88,9 @@ func main(){
   fet, _ := fet.New(conf)
   // compile all files
   fet.CompileAll()
-  // fet.Display(tpl)
+  // data := map[string]string{
+  // }
+  // fet.Display(tpl, data)
 }
 ```
 
