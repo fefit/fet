@@ -41,18 +41,18 @@ var (
 	}
 	operatorFnNames = func() opFnNames {
 		ops := opFnNames{
-			"||":      "or",
-			"&&":      "and",
-			"!":       "not",
-			"+":       "INJECT_PLUS",
-			"-":       "INJECT_MINUS",
-			"*":       "INJECT_MULTIPLE",
-			"/":       "INJECT_DIVIDE",
-			"%":       "INJECT_MOD",
-			"&":       "INJECT_BITAND",
-			" bitor ": "INJECT_BITOR",
-			"^":       "INJECT_BITXOR",
-			"**":      "INJECT_POWER",
+			"||":    "or",
+			"&&":    "and",
+			"!":     "not",
+			"+":     "INJECT_PLUS",
+			"-":     "INJECT_MINUS",
+			"*":     "INJECT_MULTIPLE",
+			"/":     "INJECT_DIVIDE",
+			"%":     "INJECT_MOD",
+			"&":     "INJECT_BITAND",
+			"bitor": "INJECT_BITOR",
+			"^":     "INJECT_BITXOR",
+			"**":    "INJECT_POWER",
 		}
 		for key, name := range compareFnNames {
 			ops[key] = name
@@ -101,7 +101,7 @@ func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, str *stri
 	conf := gen.Conf
 	if val, ok := LiteralSymbols[name]; ok {
 		if fieldType != ExpName {
-			panic(fmt.Sprint("synatax error: unexpect token ", name))
+			panic(fmt.Sprint("syntax error: unexpect token ", name))
 		} else {
 			str.WriteString(val)
 		}

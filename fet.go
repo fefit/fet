@@ -214,7 +214,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			//
 			if node.Type == AssignType {
 				if _, ok := generator.LiteralSymbols[name]; ok {
-					err = fmt.Errorf("synatax error: can not set literal '%s' as a variable", name)
+					err = fmt.Errorf("syntax error: can not set literal '%s' as a variable", name)
 					break
 				}
 				result = ld + "$" + name + localNS + ":=" + gen.Build(ast, namespace) + rd

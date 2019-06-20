@@ -46,12 +46,27 @@ type OperatorList struct {
 	Values map[string]*Operator
 }
 
+// Quote rune
+const (
+	Quote              = '"'
+	LeftRoundBracket   = '('
+	RightRoundBracket  = ')'
+	LeftSquareBracket  = '['
+	RightSquareBracket = ']'
+	Minus              = '-'
+	Plus               = '+'
+	Underline          = '_'
+	Translate          = '\\'
+	Space              = ' '
+	Bitor              = "bitor"
+)
+
 var (
 	operators = [][]string{
 		[]string{","},
 		[]string{"||"},
 		[]string{"&&"},
-		[]string{" bitor "},
+		[]string{Bitor},
 		[]string{"^"},
 		[]string{"&"},
 		[]string{"==", "!="},
@@ -61,6 +76,12 @@ var (
 		[]string{"**"},
 		[]string{"!"},
 		[]string{".", "|", ":", "(", ")", "[", "]"},
+	}
+	keywordOperators = map[string]string{
+		"bitor": "bitor",
+		"and":   "&&",
+		"or":    "||",
+		"not":   "!",
 	}
 	operatorList = func() OperatorList {
 		preIndex := 8     // add +- first
@@ -91,21 +112,6 @@ var (
 		'o': 8,
 		'x': 16,
 	}
-)
-
-// Quote rune
-const (
-	Quote              = '"'
-	LeftRoundBracket   = '('
-	RightRoundBracket  = ')'
-	LeftSquareBracket  = '['
-	RightSquareBracket = ']'
-	Minus              = '-'
-	Plus               = '+'
-	Underline          = '_'
-	Translate          = '\\'
-	Space              = ' '
-	Dollar             = '$'
 )
 
 // Any interface
@@ -188,6 +194,9 @@ type Token struct {
 	IsBegin    bool
 	Stat       *TokenStat
 }
+
+// ValidateNextFn func
+type ValidateNextFn func(token AnyToken) error
 
 // Validate for token
 func getPrevTokens(tokens []AnyToken, num int) []AnyToken {
@@ -381,7 +390,7 @@ type IdentifierToken struct {
 
 // Add for identifiers
 func (identifier *IdentifierToken) Add(s rune) (ok bool, isComplete bool, retry bool, err error) {
-	if isDigit := unicode.IsDigit(s); unicode.IsLetter(s) || isDigit || s == Underline || s == Dollar {
+	if isDigit := unicode.IsDigit(s); unicode.IsLetter(s) || isDigit || s == Underline {
 		if !identifier.IsBegin {
 			if isDigit {
 				return
@@ -399,8 +408,18 @@ func (identifier *IdentifierToken) Add(s rune) (ok bool, isComplete bool, retry 
 
 // Validate for IdentifierToken
 func (identifier *IdentifierToken) Validate(tokens []AnyToken) (retryToken AnyToken, err error) {
-	_, prevs := getNoSpaceTokens(tokens, 1)
+	hasSpace, prevs := getNoSpaceTokens(tokens, 1)
 	prev := prevs[0]
+	stat := identifier.Stat
+	ident := string(stat.Values)
+	if op, ok := keywordOperators[ident]; ok {
+		if op == "!" && prev == nil {
+			// "not"
+		} else if !hasSpace {
+			return nil, fmt.Errorf("the keyword operator '%s' must have a left space after string or number", ident)
+		}
+		return buildOperatorToken(stat, op, ident), nil
+	}
 	if prev == nil {
 		return
 	}
@@ -424,6 +443,7 @@ func (str *StringToken) Add(s rune) (ok bool, isComplete bool, retry bool, err e
 		if s == Quote {
 			ok = true
 			stat.Values = append(stat.Values, s)
+			stat.Logics = Flags{}
 			str.IsBegin = true
 			return
 		}
@@ -454,11 +474,10 @@ func (str *StringToken) Validate(tokens []AnyToken) (retryToken AnyToken, err er
 	if prev == nil {
 		return
 	}
-	switch prev.(type) {
+	switch token := prev.(type) {
 	case *LeftSquareBracketToken, *LeftBracketToken:
 	case *OperatorToken:
-		prev, _ := prev.(*OperatorToken)
-		name := prev.Name
+		name := token.Name
 		ops := operatorList.Values
 		if value, exists := ops[name]; exists {
 			name = string(value.Runes)
@@ -571,26 +590,31 @@ func (number *NumberToken) Add(s rune) (ok bool, isComplete bool, retry bool, er
 		}
 		return
 	}
-	// float or integer
-	isStillInt := stat.Values != nil
-	if isStillInt || logics["IsFloat"] {
+	// float or integer, first judge if float
+	isFloat := logics["IsFloat"]
+	isStillInt := !isFloat && stat.Values != nil
+	if isFloat || isStillInt {
 		if isDigit := unicode.IsDigit(s); isDigit {
 			ok = true
-			if isStillInt {
-				stat.Values = append(stat.Values, s)
-			} else {
+			if isFloat {
 				number.Dicimals = append(number.Dicimals, s)
+			} else {
+				stat.Values = append(stat.Values, s)
 			}
 			return
 		}
 		if s == 'e' {
-			if logics["IsFloat"] && number.Dicimals == nil {
+			if isFloat && number.Dicimals == nil {
 				err = fmt.Errorf("wrong float without dicimals")
 				return
 			}
 			ok = true
 			logics["IsPower"] = true
-			number.Power = &NumberToken{}
+			number.Power = &NumberToken{
+				Token: Token{
+					Stat: &TokenStat{},
+				},
+			}
 			return
 		}
 		if s == '.' && isStillInt {
@@ -598,6 +622,7 @@ func (number *NumberToken) Add(s rune) (ok bool, isComplete bool, retry bool, er
 			logics["IsFloat"] = true
 			return
 		}
+		ok = false
 		isComplete = true
 		return
 	}
@@ -618,6 +643,24 @@ func (number *NumberToken) Add(s rune) (ok bool, isComplete bool, retry bool, er
 		return
 	}
 	return
+}
+
+func buildOperatorToken(stat *TokenStat, name string, keyword string) *OperatorToken {
+	retryStat := &TokenStat{}
+	*retryStat = *stat
+	retryStat.Values = Runes(name)
+	retryStat.Logics = Flags{}
+	op := operatorList.Values[name]
+	return &OperatorToken{
+		Token: Token{
+			IsBegin:    true,
+			IsComplete: true,
+			Stat:       retryStat,
+		},
+		Keyword: keyword,
+		Exact:   op,
+		Name:    name,
+	}
 }
 
 // Validate for NumberToken
@@ -648,20 +691,7 @@ func (number *NumberToken) Validate(tokens []AnyToken) (retryToken AnyToken, err
 				name = "+"
 				logics["IsPlus"] = false
 			}
-			retryStat := &TokenStat{}
-			*retryStat = *stat
-			retryStat.Values = Runes(name)
-			retryStat.Logics = Flags{}
-			op := operatorList.Values[name]
-			retryToken = &OperatorToken{
-				Token: Token{
-					IsBegin:    true,
-					IsComplete: true,
-					Stat:       retryStat,
-				},
-				Exact: op,
-				Name:  name,
-			}
+			retryToken := buildOperatorToken(stat, name, "")
 			stat.StartIndex++
 			stat.Index++
 			return retryToken, nil
@@ -701,6 +731,7 @@ type OperatorToken struct {
 	Exact        *Operator
 	Name         string
 	CompareIndex int
+	Keyword      string
 }
 
 // Validate for OperatorToken
@@ -766,15 +797,37 @@ func (op *OperatorToken) Add(s rune) (ok bool, isComplete bool, retry bool, err 
 	return
 }
 
-// NodeToken for translate
-type NodeToken struct {
+// EOFToken struct
+type EOFToken struct {
+	Token
+}
+
+// Add for EOF
+func Add(s rune) (ok bool, isComplete bool, retry bool, err error) {
+	err = fmt.Errorf("the eof token should not contains any character")
+	return
+}
+
+// Validate for EOF
+func (eof *EOFToken) Validate(tokens []AnyToken) (retryToken AnyToken, err error) {
+	_, prevs := getNoSpaceTokens(tokens, 1)
+	prev := prevs[0]
+	switch prev.(type) {
+	case *OperatorToken:
+		return nil, fmt.Errorf("wrong operator token at last position")
+	}
+	return
+}
+
+// TokenNode for translate
+type TokenNode struct {
 	Token
 	Node *Node
 	Type string
 }
 
 // Add for nodetoken
-func (node *NodeToken) Add(s rune) (ok bool, isComplete bool, retry bool, err error) {
+func (node *TokenNode) Add(s rune) (ok bool, isComplete bool, retry bool, err error) {
 	return
 }
 
@@ -804,6 +857,8 @@ type Parser struct {
 	Context      Runes
 	IgnoreIndex  int
 	TokenStat    *TokenStat
+	NextMustBe   ValidateNextFn
+	NextValids   int
 }
 
 // Init parserer
@@ -843,6 +898,8 @@ func (parser *Parser) Reuse() {
 	parser.Context = nil
 	parser.Tokens = nil
 	parser.Current = nil
+	parser.NextMustBe = nil
+	parser.NextValids = 0
 }
 
 // Reset for parser
@@ -890,8 +947,10 @@ func (parser *Parser) SetToken(token AnyToken) {
 
 // Next for Parser
 func (parser *Parser) Next() {
-	parser.Tokens = append(parser.Tokens, parser.Current)
-	parser.Current = nil
+	if parser.Current != nil {
+		parser.Tokens = append(parser.Tokens, parser.Current)
+		parser.Current = nil
+	}
 	parser.TokenStat = &TokenStat{}
 }
 
@@ -997,12 +1056,47 @@ func (parser *Parser) Add(s rune) error {
 			return err
 		} else if retryToken != nil {
 			// try number token into operator(+/-) and number
+			// try identifier to keyword operators
 			if _, err = retryToken.Validate(tokens); err != nil {
 				return err
 			}
-			parser.Tokens = append(parser.Tokens, retryToken)
+			if _, isMP := current.(*NumberToken); isMP {
+				// +-
+				parser.Tokens = append(parser.Tokens, retryToken)
+			} else {
+				// keyword operator
+				parser.Current = retryToken
+				// next must has a space
+				if token, ok := retryToken.(*OperatorToken); ok {
+					var validNext ValidateNextFn
+					validNext = func(t AnyToken) error {
+						if _, isSpace := t.(*SpaceToken); isSpace {
+							return nil
+						}
+						return fmt.Errorf("the keyword operator '%s' must have a right space", token.Keyword)
+					}
+					parser.NextMustBe = validNext
+					parser.NextValids++
+				}
+			}
 		}
 		parser.Reset()
+		// check if has validate next func
+		if parser.NextMustBe != nil {
+			valids := parser.NextValids
+			if valids == 0 {
+				if vErr := parser.NextMustBe(parser.Current); vErr != nil {
+					return vErr
+				}
+				parser.NextMustBe = nil
+			} else {
+				// jump current
+				parser.NextValids--
+				if parser.NextValids > 0 {
+					return fmt.Errorf("wrong token:%#v", parser.Current)
+				}
+			}
+		}
 		parser.Next()
 		if !ok {
 			return parser.Add(s)
@@ -1036,7 +1130,7 @@ func bracketToOperator(name string, stat *TokenStat) *OperatorToken {
 
 func getParsedNode(index int, parsed []AnyToken) *Node {
 	token := parsed[index]
-	if cur, ok := token.(*NodeToken); ok {
+	if cur, ok := token.(*TokenNode); ok {
 		return cur.Node
 	}
 	return &Node{
@@ -1046,13 +1140,13 @@ func getParsedNode(index int, parsed []AnyToken) *Node {
 }
 
 // parsed to ast
-func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*NodeToken, error) {
+func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, error) {
 	lastToken := Token{
 		Stat: &TokenStat{},
 	}
 	if len(tokens) == 1 {
 		token := tokens[0]
-		return &NodeToken{
+		return &TokenNode{
 			Token: lastToken,
 			Node: &Node{
 				Type:  "raw",
@@ -1070,11 +1164,11 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*NodeToken, erro
 		if isInBracket {
 			if cur, ok := token.(*RightBracketToken); ok && cur.Stat.RBLevel == levels[0] && cur.Stat.RBSubLevel == levels[1] {
 				stat := cur.Stat
-				nodeToken, err := exp.toAst(subs, isInFunc)
+				tokenNode, err := exp.toAst(subs, isInFunc)
 				if err != nil {
 					return nil, err
 				}
-				noRounds = append(noRounds, nodeToken)
+				noRounds = append(noRounds, tokenNode)
 				if isInFunc {
 					noRounds = append(noRounds, bracketToOperator(")", stat))
 				}
@@ -1162,12 +1256,12 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*NodeToken, erro
 		if op, ok := token.(*OperatorToken); ok {
 			var next AnyToken
 			var nextNode *Node
-			isNextNodeToken := false
+			isNextTokenNode := false
 			if i+1 < total {
 				next = lasts[i+1]
-				if cur, ok := next.(*NodeToken); ok {
+				if cur, ok := next.(*TokenNode); ok {
 					nextNode = cur.Node
-					isNextNodeToken = true
+					isNextTokenNode = true
 				} else {
 					nextNode = &Node{
 						Type:  "raw",
@@ -1180,7 +1274,7 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*NodeToken, erro
 			if name == "!" {
 				i++
 				nextNode.Operator = name
-				parsed = append(parsed, &NodeToken{
+				parsed = append(parsed, &TokenNode{
 					Node: nextNode,
 				})
 			} else {
@@ -1190,7 +1284,7 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*NodeToken, erro
 				switch name {
 				case ".", "[":
 					var node *Node
-					if cur, ok := last.(*NodeToken); ok && cur.Type == "object" {
+					if cur, ok := last.(*TokenNode); ok && cur.Type == "object" {
 						node = cur.Node
 					} else {
 						var root *Node
@@ -1210,7 +1304,7 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*NodeToken, erro
 							node.Operator = root.Operator
 							root.Operator = ""
 						}
-						curToken := &NodeToken{
+						curToken := &TokenNode{
 							Type: "object",
 							Node: node,
 						}
@@ -1221,7 +1315,7 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*NodeToken, erro
 					i++
 				case "(":
 					var root *Node
-					if cur, ok := last.(*NodeToken); ok {
+					if cur, ok := last.(*TokenNode); ok {
 						root = cur.Node
 					} else {
 						root = &Node{
@@ -1237,7 +1331,7 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*NodeToken, erro
 						fnNode.Operator = root.Operator
 						root.Operator = ""
 					}
-					if isNextNodeToken {
+					if isNextTokenNode {
 						fnNode.Arguments = nextNode.Arguments
 					} else {
 						if op, ok := nextNode.Token.(*OperatorToken); ok && op.Name == ")" {
@@ -1246,7 +1340,7 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*NodeToken, erro
 							fnNode.Arguments = append(fnNode.Arguments, nextNode)
 						}
 					}
-					parsed[lastIndex] = &NodeToken{
+					parsed[lastIndex] = &TokenNode{
 						Node: fnNode,
 						Type: "function",
 					}
@@ -1266,7 +1360,7 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*NodeToken, erro
 	}
 	if len(parsed) == 1 {
 		curToken := parsed[0]
-		if result, ok := curToken.(*NodeToken); ok {
+		if result, ok := curToken.(*TokenNode); ok {
 			return result, nil
 		}
 		return nil, fmt.Errorf("unexpect token,%#v", curToken)
@@ -1325,7 +1419,7 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*NodeToken, erro
 				}
 			}
 			parsed = append(parsed[:prevIndex+1], parsed[nextIndex+1:]...)
-			parsed[prevIndex] = &NodeToken{
+			parsed[prevIndex] = &TokenNode{
 				Token: lastToken,
 				Node:  result,
 			}
@@ -1336,26 +1430,30 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*NodeToken, erro
 			Type: "function",
 		}
 		fnNode.Arguments = append(fnNode.Arguments, result)
-		return &NodeToken{
+		return &TokenNode{
 			Token: lastToken,
 			Node:  fnNode,
 		}, nil
 	}
-	return &NodeToken{
+	return &TokenNode{
 		Token: lastToken,
 		Node:  result,
 	}, nil
 }
 
 func (exp *Expression) tokenize(context string) (tokens []AnyToken, err error) {
+	if context == "" {
+		return
+	}
 	parser := exp.Parser
 	if exp.Initial {
+		// initial stats
+		parser.Reset()
 		parser.Reuse()
 	} else {
 		exp.Initial = true
 	}
 	rns := []rune(context)
-	rns = append(rns, Space)
 	total := len(rns)
 	for i := 0; i < total; i++ {
 		s := rns[i]
@@ -1363,21 +1461,35 @@ func (exp *Expression) tokenize(context string) (tokens []AnyToken, err error) {
 			return nil, err
 		}
 	}
-	all := parser.Tokens
-	count := len(all)
-	actual := all[:count]
-	parser.Tokens = actual
 	if parser.RBLevel != 0 {
 		return nil, fmt.Errorf("wrong round bracket")
 	} else if parser.SBLevel != 0 {
 		return nil, fmt.Errorf("wrong square bracket")
 	}
-	EOF := actual[count-1]
-	switch EOF.(type) {
-	case *OperatorToken:
-		return nil, fmt.Errorf("wrong operator token at last position")
+	// check if token is not complete
+	current := parser.Current
+	if current != nil {
+		switch token := current.(type) {
+		case *StringToken:
+			return nil, fmt.Errorf("unclosed string token:%s", string(token.Stat.Values))
+		case *SpaceToken:
+			token.IsComplete = true
+			return parser.Tokens, nil
+		default:
+			// need complete and validate
+		}
 	}
-	return parser.Tokens, nil
+	if err = parser.Add(Space); err != nil {
+		return nil, err
+	}
+	// ignore test space token, because it is not complete
+	lasts := parser.Tokens
+	// spew.Dump(lasts)
+	EOF := &EOFToken{}
+	if _, err = EOF.Validate(lasts); err != nil {
+		return nil, err
+	}
+	return lasts, nil
 }
 
 // Parse parse expression
@@ -1400,7 +1512,7 @@ func (exp *Expression) Parse(context string) (*Node, error) {
 		}
 	}
 	// parse to ast
-	var lastToken *NodeToken
+	var lastToken *TokenNode
 	if lastToken, err = exp.toAst(lasts, false); err != nil {
 		return nil, err
 	}

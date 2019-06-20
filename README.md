@@ -61,14 +61,24 @@ it's more like the php template engineer smarty.
 
 ### [表达式支持]Expression
   
-1. operators  
-`+ - * / % ! ** == >= <= != && || & bitor ^`
+1. operators    
+  `+ - * / % ! ** == >= <= != && || & ^`
 
-2. pipe   
-  `|` and `:` for arguments
+2. keyword operators  
+  && `and`  
+  || `or`   
+  ! `not`  
+  | `bitor`
 
-3. numbers  
-  hex: `0xffff` octal: `0o777` binary: `0b1000` scientific notation `1e10`
+3. pipe   
+  `|` pipeline funcs  
+  `:` set arguments for pipeline funcs
+
+4. numbers    
+  hex: `0xffff`   
+  octal: `0o777`  
+  binary: `0b1000`  
+  scientific notation `1e10`
 
 ### [内置的函数]Func Maps
 
