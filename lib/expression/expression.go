@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"unicode"
 
-	"github.com/davecgh/go-spew/spew"
-
 	"github.com/fefit/fet/types"
 )
 
@@ -483,7 +481,6 @@ func (str *StringToken) Add(s rune) (ok bool, isComplete bool, retry bool, err e
 		if logics["IsInVar"] {
 			last := str.Variables[len(str.Variables)-1]
 			last.EndIndex = len(stat.Values)
-			fmt.Printf("lasts:%#v", str.Variables)
 		} else {
 			logics["IsInVar"] = true
 			str.Variables = append(str.Variables, &Indexs{
@@ -503,7 +500,6 @@ func (str *StringToken) Add(s rune) (ok bool, isComplete bool, retry bool, err e
 				}
 			}
 			str.Variables = realVars
-			spew.Dump("real:%#v", realVars)
 		}
 	}
 	return

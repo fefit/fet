@@ -256,7 +256,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			} else {
 				code := gen.Build(ast, namespace, exp)
 				key := props["key"].Raw
-				result = "{{range $" + key + ", $" + props["item"].Raw + " := " + code + "}}"
+				result = "{{range $" + key + localNS + ", $" + props["item"].Raw + localNS + " := " + code + "}}"
 			}
 		} else if name == "if" {
 			ast, expErr := exp.Parse(content)
@@ -1101,7 +1101,7 @@ func (fet *Fet) parseFile(tpl string, blocks []*Node, extends *[]string, nested 
 				if node.Type == BlockStartType && node.Name == "block" {
 					blockName := node.Content
 					if count, ok := counts[blockName]; ok {
-						index += count
+						index += count - 1
 						replaces = overides[blockName]
 						queues = append(queues, replaces...)
 						continue
@@ -1149,7 +1149,7 @@ func (fet *Fet) getLastDir(dir string) string {
 	}
 	runes := []rune(dir)
 	first := runes[0]
-	if first == '/' {
+	if path.IsAbs(dir) {
 		return dir
 	} else if first == '.' {
 		return path.Join(fet.cwd, dir)
