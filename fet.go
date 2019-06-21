@@ -18,6 +18,7 @@ import (
 	"github.com/fefit/fet/lib/expression"
 	"github.com/fefit/fet/lib/funcs"
 	"github.com/fefit/fet/lib/generator"
+	"github.com/fefit/fet/types"
 	"github.com/fefit/fet/utils"
 )
 
@@ -68,16 +69,12 @@ type Data struct {
 	Props Props
 }
 
-// Indexs struct
-type Indexs struct {
-	StartIndex int
-	EndIndex   int
-}
+// Indexs for tags
+type Indexs = types.Indexs
 
 // Quote struct
 type Quote struct {
 	Indexs
-	Variables []*Indexs
 }
 
 // Position struct
@@ -217,9 +214,9 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 					err = fmt.Errorf("syntax error: can not set literal '%s' as a variable", name)
 					break
 				}
-				result = ld + "$" + name + localNS + ":=" + gen.Build(ast, namespace) + rd
+				result = ld + "$" + name + localNS + ":=" + gen.Build(ast, namespace, exp) + rd
 			} else {
-				result = "{{" + gen.Build(ast, namespace) + "}}"
+				result = "{{" + gen.Build(ast, namespace, exp) + "}}"
 			}
 		}
 	case SingleType:
@@ -257,7 +254,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			if expErr != nil {
 				err = toError(expErr)
 			} else {
-				code := gen.Build(ast, namespace)
+				code := gen.Build(ast, namespace, exp)
 				key := props["key"].Raw
 				result = "{{range $" + key + ", $" + props["item"].Raw + " := " + code + "}}"
 			}
@@ -266,7 +263,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			if expErr != nil {
 				err = toError(expErr)
 			} else {
-				code := gen.Build(ast, namespace)
+				code := gen.Build(ast, namespace, exp)
 				result = "{{if " + code + "}}"
 			}
 		}
@@ -276,7 +273,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			if expErr != nil {
 				err = toError(expErr)
 			} else {
-				code := gen.Build(ast, namespace)
+				code := gen.Build(ast, namespace, exp)
 				result = "{{else if " + code + "}}"
 			}
 		} else if name == "else" {
@@ -612,7 +609,6 @@ func (fet *Fet) parse(codes string, pwd string) (result *NodeList, err error) {
 	var (
 		isInComment, isTagStart, isInBlockTag, isSubTemplate bool
 		node                                                 *Node
-		variable                                             *Indexs
 		quote                                                *Quote
 		markIndex, lineNo, lineIndex, blockStartIndex        int
 		blocks                                               []*Node
@@ -655,7 +651,7 @@ func (fet *Fet) parse(codes string, pwd string) (result *NodeList, err error) {
 		prevFeature := block.Current
 		locals := prevFeature.LocalScopes
 		if locals != nil {
-			globals = globals[:len(globals)-len(locals)]
+			globals = append([]string{}, globals[:len(globals)-len(locals)]...)
 		}
 	}
 	strs := Runes(codes)
@@ -697,17 +693,6 @@ LOOP:
 					// quote end
 					quote.EndIndex = i + 1
 					quote = nil
-				} else if code == "`" {
-					// variable
-					if variable != nil {
-						variable.EndIndex = i + 1
-						quote.Variables = append(quote.Variables, variable)
-						variable = nil
-					} else {
-						variable = &Indexs{
-							StartIndex: i,
-						}
-					}
 				}
 			} else {
 				if node.Type == UnknownType {

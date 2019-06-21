@@ -5,12 +5,12 @@ import (
 	"strconv"
 	"strings"
 
-	exp "github.com/fefit/fet/lib/expression"
+	e "github.com/fefit/fet/lib/expression"
 	t "github.com/fefit/fet/types"
 )
 
 // Node for type alias
-type Node = exp.Node
+type Node = e.Node
 
 // GenConf of generator
 type GenConf struct {
@@ -25,9 +25,10 @@ type Generator struct {
 type opFnNames map[string]string
 
 const (
-	// SPACE FOR
+	// SPACE CONSTANT
 	SPACE     = " "
 	toFloatFn = "INJECT_TO_FLOAT"
+	concatFn  = "concat"
 )
 
 var (
@@ -59,6 +60,7 @@ var (
 		}
 		return ops
 	}()
+	// LiteralSymbols for keyword
 	LiteralSymbols = map[string]string{
 		"true":  "true",
 		"false": "false",
@@ -68,27 +70,29 @@ var (
 )
 
 // Build for code
-func (gen *Generator) Build(node *Node, nsFn t.NamespaceFn) string {
+func (gen *Generator) Build(node *Node, nsFn t.NamespaceFn, exp *e.Expression) string {
 	// conf := gen.Conf
 	var str strings.Builder
-	gen.parseRecursive(node, nsFn, &str)
+	gen.parseRecursive(node, nsFn, &str, exp)
 	return str.String()
 }
 
-func (gen *Generator) wrapToFloat(node *Node, nsFn t.NamespaceFn, str *strings.Builder, isNative bool) {
+func (gen *Generator) wrapToFloat(node *Node, nsFn t.NamespaceFn, str *strings.Builder, exp *e.Expression, isNative bool) {
 	if isNative {
 		str.WriteString("(")
 		str.WriteString(toFloatFn)
 		str.WriteString(SPACE)
 	}
-	gen.parseRecursive(node, nsFn, str)
+	gen.parseRecursive(node, nsFn, str, exp)
 	if isNative {
 		str.WriteString(")")
 	}
 }
 
+// FieldType for identifier
 type FieldType int
 
+// ObjectRoot fieldtypes
 const (
 	ObjectRoot FieldType = iota
 	ObjectField
@@ -123,18 +127,40 @@ func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, str *stri
 	}
 }
 
-func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *strings.Builder) {
+func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *strings.Builder, exp *e.Expression) {
 	curType := node.Type
 	conf := gen.Conf
 	if curType == "raw" {
 		token := node.Token
-		stat := token.GetStat()
 		switch t := token.(type) {
-		case *exp.StringToken:
-			str.WriteString(string(stat.Values))
-		case *exp.NumberToken:
+		case *e.StringToken:
+			stat := t.Stat
+			vars := t.Variables
+			runes := stat.Values
+			if len(vars) > 0 {
+				i, total := 1, len(runes)
+				str.WriteString("(" + concatFn + SPACE)
+				for _, pos := range vars {
+					text := string(runes[i:pos.StartIndex])
+					str.WriteString("\"")
+					str.WriteString(text)
+					str.WriteString("\" ")
+					express := string(runes[pos.StartIndex+1 : pos.EndIndex-1])
+					ast, _ := exp.Parse(express)
+					str.WriteString(gen.Build(ast, nsFn, exp))
+					i = pos.EndIndex + 1
+					if i >= total {
+						break
+					}
+				}
+				str.WriteString(")")
+			} else {
+				str.WriteString(string(runes))
+			}
+		case *e.NumberToken:
 			str.WriteString(strconv.FormatFloat(t.ToNumber(), 'f', -1, 64))
-		case *exp.IdentifierToken:
+		case *e.IdentifierToken:
+			stat := t.Stat
 			name := string(stat.Values)
 			gen.parseIdentifier(name, nsFn, str, ExpName)
 		}
@@ -145,13 +171,13 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 		root := node.Root
 		isParsed := false
 		if root.Type == "raw" {
-			if t, ok := root.Token.(*exp.IdentifierToken); ok {
+			if t, ok := root.Token.(*e.IdentifierToken); ok {
 				gen.parseIdentifier(string(t.Stat.Values), nsFn, str, ObjectRoot)
 				isParsed = true
 			}
 		}
 		if !isParsed {
-			gen.parseRecursive(root, nsFn, str)
+			gen.parseRecursive(root, nsFn, str, exp)
 		}
 		str.WriteString(SPACE)
 		for i := 0; i < total; i++ {
@@ -160,17 +186,17 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 			str.WriteString(SPACE)
 			if curType == "raw" {
 				token := cur.Token
-				if t, ok := token.(*exp.StringToken); ok {
+				if t, ok := token.(*e.StringToken); ok {
 					prop := string(t.Stat.Values)
 					if conf.Ucfirst {
 						str.WriteString(strings.Title(prop))
 					} else {
 						str.WriteString(prop)
 					}
-				} else if t, ok := token.(*exp.NumberToken); ok {
+				} else if t, ok := token.(*e.NumberToken); ok {
 					index := t.ToNumber()
 					str.WriteString(strconv.FormatInt(int64(index), 10))
-				} else if t, ok := token.(*exp.IdentifierToken); ok {
+				} else if t, ok := token.(*e.IdentifierToken); ok {
 					ident := string(t.Stat.Values)
 					if cur.Operator == "." {
 						if conf.Ucfirst {
@@ -183,10 +209,10 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 						gen.parseIdentifier(ident, nsFn, str, ObjectField)
 					}
 				} else {
-					gen.parseRecursive(cur, nsFn, str)
+					gen.parseRecursive(cur, nsFn, str, exp)
 				}
 			} else {
-				gen.parseRecursive(cur, nsFn, str)
+				gen.parseRecursive(cur, nsFn, str, exp)
 			}
 		}
 		str.WriteString(")")
@@ -196,20 +222,20 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 		str.WriteString("(")
 		isParsed := false
 		if root.Type == "raw" {
-			if t, ok := root.Token.(*exp.IdentifierToken); ok {
+			if t, ok := root.Token.(*e.IdentifierToken); ok {
 				gen.parseIdentifier(string(t.Stat.Values), nsFn, str, FuncName)
 				isParsed = true
 			}
 		}
 		if !isParsed {
-			gen.parseRecursive(root, nsFn, str)
+			gen.parseRecursive(root, nsFn, str, exp)
 		}
 		str.WriteString(SPACE)
 		for i, total := 0, len(args); i < total; i++ {
 			if i > 0 {
 				str.WriteString(SPACE)
 			}
-			gen.parseRecursive(args[i], nsFn, str)
+			gen.parseRecursive(args[i], nsFn, str, exp)
 		}
 		str.WriteString(")")
 	} else {
@@ -223,9 +249,9 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 			str.WriteString(name)
 			str.WriteString(SPACE)
 		}
-		gen.wrapToFloat(node.Left, nsFn, str, isNativeCompare)
+		gen.wrapToFloat(node.Left, nsFn, str, exp, isNativeCompare)
 		str.WriteString(SPACE)
-		gen.wrapToFloat(node.Right, nsFn, str, isNativeCompare)
+		gen.wrapToFloat(node.Right, nsFn, str, exp, isNativeCompare)
 		str.WriteString(")")
 	}
 }

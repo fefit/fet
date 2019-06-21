@@ -9,7 +9,7 @@ FET means Friendly, Easily for Templating.`text/template` has a basic support fo
 `text/template` 作为go官方的模板引擎，虽然基础的功能已有支持，但对于开发人员来说，其书写语法十分原始，写起来很困难，所以这才有了FET。
 
 
-## Usage
+## [使用方式]Usage
 
 it's more like the php template engineer smarty.
 
@@ -65,10 +65,8 @@ it's more like the php template engineer smarty.
   `+ - * / % ! ** == >= <= != && || & ^`
 
 2. keyword operators  
-  && `and`  
-  || `or`   
-  ! `not`  
-  | `bitor`
+  `and` && `or` || `not` ! `eq` == `ne` != `gt` < `ge` <= `lt` > `le` >=  
+  `bitor` for "|"
 
 3. pipe   
   `|` pipeline funcs  
@@ -79,6 +77,14 @@ it's more like the php template engineer smarty.
   octal: `0o777`  
   binary: `0b1000`  
   scientific notation `1e10`
+### [字符串拼接]Characters concat  
+  ```go
+  {{ var = "world" }}
+  {{ "hello `var`"}} // output "hello world"
+  ```
+  use ` `` ` for variable or expression in strings. do not use `+`.
+  
+  使用 ` `` `符号来包裹变量或者表达式来达到拼接字符串的目的，`+`号仅用作数字类型的加法运算，请勿使用。
 
 ### [内置的函数]Func Maps
 

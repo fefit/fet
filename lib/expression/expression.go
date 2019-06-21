@@ -6,7 +6,14 @@ import (
 	"sort"
 	"strconv"
 	"unicode"
+
+	"github.com/davecgh/go-spew/spew"
+
+	"github.com/fefit/fet/types"
 )
+
+// Indexs
+type Indexs = types.Indexs
 
 // Type token
 type Type int
@@ -59,6 +66,7 @@ const (
 	Translate          = '\\'
 	Space              = ' '
 	Bitor              = "bitor"
+	VarSymbol          = '`'
 )
 
 var (
@@ -82,6 +90,12 @@ var (
 		"and":   "&&",
 		"or":    "||",
 		"not":   "!",
+		"eq":    "==",
+		"ne":    "!=",
+		"lt":    "<",
+		"le":    "<=",
+		"gt":    ">",
+		"ge":    ">=",
 	}
 	operatorList = func() OperatorList {
 		preIndex := 8     // add +- first
@@ -390,6 +404,7 @@ type IdentifierToken struct {
 
 // Add for identifiers
 func (identifier *IdentifierToken) Add(s rune) (ok bool, isComplete bool, retry bool, err error) {
+	stat := identifier.Stat
 	if isDigit := unicode.IsDigit(s); unicode.IsLetter(s) || isDigit || s == Underline {
 		if !identifier.IsBegin {
 			if isDigit {
@@ -397,10 +412,12 @@ func (identifier *IdentifierToken) Add(s rune) (ok bool, isComplete bool, retry 
 			}
 			identifier.IsBegin = true
 		}
-		// identifier.Values = append(identifier.Values, s)
-		stat := identifier.Stat
 		stat.Values = append(stat.Values, s)
 		ok = true
+		return
+	}
+	if len(stat.Values) == 1 && stat.Values[0] == Underline {
+		err = fmt.Errorf("can not use underline(_) as identifier")
 		return
 	}
 	return identifier.Judge()
@@ -434,6 +451,7 @@ func (identifier *IdentifierToken) Validate(tokens []AnyToken) (retryToken AnyTo
 // StringToken strings
 type StringToken struct {
 	Token
+	Variables []*Indexs
 }
 
 // Add for string
@@ -458,11 +476,35 @@ func (str *StringToken) Add(s rune) (ok bool, isComplete bool, retry bool, err e
 	}
 	if s == Translate {
 		logics["IsInTransalte"] = true
+		logics["IsInVar"] = false
 		return
+	}
+	if s == VarSymbol {
+		if logics["IsInVar"] {
+			last := str.Variables[len(str.Variables)-1]
+			last.EndIndex = len(stat.Values)
+			fmt.Printf("lasts:%#v", str.Variables)
+		} else {
+			logics["IsInVar"] = true
+			str.Variables = append(str.Variables, &Indexs{
+				StartIndex: len(stat.Values) - 1,
+			})
+		}
 	}
 	if s == Quote {
 		isComplete = true
 		str.IsComplete = true
+		vars := str.Variables
+		realVars := []*Indexs{}
+		if len(vars) > 0 {
+			for _, pos := range vars {
+				if pos.EndIndex > pos.StartIndex+1 {
+					realVars = append(realVars, pos)
+				}
+			}
+			str.Variables = realVars
+			spew.Dump("real:%#v", realVars)
+		}
 	}
 	return
 }
@@ -573,9 +615,9 @@ func (number *NumberToken) Add(s rune) (ok bool, isComplete bool, retry bool, er
 			err = powerErr
 		} else {
 			if powerOk {
-				powerStat := power.Stat
-				if powerStat.Logics["IsFloat"] || powerStat.Logics["IsBase"] {
-					err = fmt.Errorf("wrong scientific notation:%v", s)
+				powerLogics := power.Stat.Logics
+				if powerLogics["IsFloat"] || powerLogics["IsBase"] || powerLogics["IsPower"] {
+					err = fmt.Errorf("wrong scientific notation:%s", string(s))
 				} else {
 					ok = true
 				}
@@ -1484,7 +1526,7 @@ func (exp *Expression) tokenize(context string) (tokens []AnyToken, err error) {
 	}
 	// ignore test space token, because it is not complete
 	lasts := parser.Tokens
-	// spew.Dump(lasts)
+	// spew.Dump(lasts[0])
 	EOF := &EOFToken{}
 	if _, err = EOF.Validate(lasts); err != nil {
 		return nil, err
