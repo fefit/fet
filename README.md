@@ -1,35 +1,39 @@
 # FET
-FET is a go template engineer that can translate code to `text/template` code.
+FET is a go template engineer that can translate code to `html/template` code.
 
-FET能按自身支持的语法来将模板编译成text/template的模板语法，当然这只是第一步。
+FET能按自身支持的语法来将模板编译成html/template的模板语法，当然这只是第一步。
 
 ## [FET的来由]Why FET
-FET means Friendly, Easily for Templating.`text/template` has a basic support for templating, but it's not easy to use, so you need FET.
+FET means Friendly, Easily for Templating.`html/template` has a basic support for templating, but it's not easy to use, so you need FET.
+- Expression support
+- Use `incldue` with defined variables scopes
+- Use `extends` inherit base template with defined variables scopes
+- Extends support for `for` loop, e.g
 
-`text/template` 作为go官方的模板引擎，虽然基础的功能已有支持，但对于开发人员来说，其书写语法十分原始，写起来很困难，所以这才有了FET。
+`html/template` 作为go官方的模板引擎，虽然基础的功能已有支持，但对于开发人员来说，其书写语法十分原始，写起来很困难，所以这才有了FET。
 
 
 ## [使用方式]Usage
 
 it's more like the php template engineer smarty.
 
-使用方式与PHP的模板引擎smarty类似，个别地方有差异
+使用方式与PHP的模板引擎smarty基本类似，但个别功能因为`html/template`无法实现而放弃支持。
 
 - [继承]inherit
 
-  `{{extends "base.html"}}`
+  `{%extends "base.html"%}`
 
 - [继承block块]blocks for inherit
   
-  `{{block "header"}}`
+  `{%block "header"%}`
 
     `<div>some code here</div>`
   
-  `{{/block}}`
+  `{%/block%}`
 
 - [引入包含文件]include
 
-  `{{include "header.html"}}`
+  `{%include "header.html"%}`
 
 - [循环]loop, do not support `break` `continue`
   
@@ -54,9 +58,9 @@ it's more like the php template engineer smarty.
 
 - [条件判断]if condition
   
-  `{{if num > 100}}`
+  `{{if $num > 100}}`
   
-  `{{elseif num < 50}}`
+  `{{elseif $num < 50}}`
   
   `{{else}}`
   
@@ -64,15 +68,15 @@ it's more like the php template engineer smarty.
 
 - [数据输出]output
   
-  `{{item.url}}`
+  `{{$item.url}}`
 
 - [使用方法管道]pipe funcs
 
-  `{{item.title|truncate:30}}`
+  `{{$item.title|truncate:30}}`
 
 - [定义变量]variable assign
   
-  `{{title = "this is a title"}}`
+  `{{$title = "this is a title"}}`
 
 ### [表达式支持]Expression
   
@@ -94,8 +98,8 @@ it's more like the php template engineer smarty.
   scientific notation `1e10`
 ### [字符串拼接]Characters concat  
   ```go
-  {{ var = "world" }}
-  {{ "hello `var`"}} // output "hello world"
+  {{ $var = "world" }}
+  {{ "hello `$var`"}} // output "hello world"
   ```
   use ` `` ` for variable or expression in strings. do not use `+`.
   
@@ -124,6 +128,8 @@ import (
 
 func main(){
   conf := &fet.Config{
+    LeftDelimiter: "{%", // default "{%"
+    RightDelimiter: "%}", // default "%}"
     TemplateDir: "tmpls", //  default "templates"
     CompileDir: "views", // default "templates_c",
     Ignores: []string{"inc/*"}, // ignore compile paths,files that only will include.use filepath.Match
@@ -173,7 +179,7 @@ func main(){
 
 2. [安装模式] `install mode`  
 
-    install `fet`,and use `fet.Display(tpl)` to render the template file.
+    install `fet`,and use `fet.Display(tpl, data, os.Stdout)` to render the template file.
 
     将fet安装到项目中，同时需要将fet打包到项目内上线，使用fet的api来渲染输出模板。
 

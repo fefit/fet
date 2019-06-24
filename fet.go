@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"unicode"
@@ -133,8 +134,8 @@ type NodeList struct {
 
 var (
 	defConfig = &Config{
-		LeftDelimiter:  "{{",
-		RightDelimiter: "}}",
+		LeftDelimiter:  "{%",
+		RightDelimiter: "%}",
 		CommentSymbol:  "*",
 		TemplateDir:    "templates",
 		CompileDir:     "templates_c",
@@ -189,10 +190,9 @@ func (node *Node) AddFeature(feature *Node) {
 // Compile method for Node
 func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	fet := node.Fet
-	exp, gen, conf := fet.exp, fet.gen, fet.Config
+	exp, gen, conf, delimit := fet.exp, fet.gen, fet.Config, fet.wrapCode
 	includes, extends := options.Includes, options.Extends
 	name, content := node.Name, node.Content
-	ld, rd := fet.LeftDelimiter, fet.RightDelimiter
 	parentScopes, localScopes := options.ParentScopes, options.LocalScopes
 	parentNS, localNS := options.ParentNS, options.LocalNS
 	copyScopes := append([]string{}, *localScopes...)
@@ -221,9 +221,12 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 		// output nothing
 	case TextType:
 		result = strings.TrimSpace(content)
+		if conf.LeftDelimiter != "{{" {
+			rule := regexp.MustCompile(`(\{{2,})`)
+			result = rule.ReplaceAllString(result, `{{"$1"}}`)
+		}
 	case AssignType, OutputType:
 		isAssign := node.Type == AssignType
-
 		if isAssign && !utils.IsIdentifier(name, conf.Mode) {
 			err = node.halt("syntax error: wrong variable name '%s', please check the parser mode", name)
 			break
@@ -237,9 +240,9 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 					err = node.halt("syntax error: can not set literal '%s' as a variable name", name)
 					break
 				}
-				result = ld + addVarPrefix + name + localNS + " := " + gen.Build(ast, namespace, exp) + rd
+				result = delimit(addVarPrefix + name + localNS + " := " + gen.Build(ast, namespace, exp))
 			} else {
-				result = "{{" + gen.Build(ast, namespace, exp) + "}}"
+				result = delimit(gen.Build(ast, namespace, exp))
 			}
 		}
 	case SingleType:
@@ -280,11 +283,12 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				} else {
 					code := gen.Build(ast, namespace, exp)
 					key := props["key"].Raw
-					result = "{{range "
+					result = "range "
 					if key != "" {
 						result += addVarPrefix + key + localNS + ", "
 					}
-					result += addVarPrefix + props["value"].Raw + localNS + " := " + code + "}}"
+					result += addVarPrefix + props["value"].Raw + localNS + " := " + code
+					result = delimit(result)
 				}
 			} else {
 				data := *node.Data
@@ -292,19 +296,19 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				initial := data["Initial"]
 				res := strings.Builder{}
 				// add if block for variable context
-				res.WriteString("{{if true}}")
+				res.WriteString(delimit("if true"))
 				for key, name := range vars {
 					ast, expErr := exp.Parse(initial[key])
 					if expErr != nil {
 						err = toError(expErr)
 						break
 					}
-					res.WriteString("{{" + addVarPrefix + name + localNS + ":=" + gen.Build(ast, namespace, exp) + "}}")
+					res.WriteString(delimit(addVarPrefix + name + localNS + ":=" + gen.Build(ast, namespace, exp)))
 				}
 				suffixNS := indexString(node.StartIndex) + "_" + indexString(node.EndIndex) + localNS
 				chanName := "$loop_" + suffixNS
-				res.WriteString("{{" + chanName + " := (INJECT_MAKE_LOOP_CHAN)}}")
-				res.WriteString("{{range " + chanName + ".Chan}}")
+				res.WriteString(delimit(chanName + " := (INJECT_MAKE_LOOP_CHAN)"))
+				res.WriteString(delimit("range " + chanName + ".Chan"))
 				// Add condition code
 				conds := data["Conds"][0]
 				// add initial declares
@@ -313,12 +317,12 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				if expErr != nil {
 					err = toError(expErr)
 				} else {
-					res.WriteString("{{if " + gen.Build(ast, namespace, exp) + "}}")
-					res.WriteString("{{" + chanName + ".Next}}")
-					res.WriteString("{{else}}")
-					res.WriteString("{{" + chanName + ".Close}}")
-					res.WriteString("{{end}}")
-					res.WriteString("{{if (gt " + chanName + ".Loop -1)}}")
+					res.WriteString(delimit("if " + gen.Build(ast, namespace, exp)))
+					res.WriteString(delimit(chanName + ".Next"))
+					res.WriteString(delimit("else"))
+					res.WriteString(delimit(chanName + ".Close"))
+					res.WriteString(delimit("end"))
+					res.WriteString(delimit("if (gt " + chanName + ".Loop -1)"))
 				}
 				result = res.String()
 			}
@@ -328,7 +332,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				err = toError(expErr)
 			} else {
 				code := gen.Build(ast, namespace, exp)
-				result = "{{if " + code + "}}"
+				result = delimit("if " + code)
 			}
 		}
 	case BlockFeatureType:
@@ -338,10 +342,10 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				err = toError(expErr)
 			} else {
 				code := gen.Build(ast, namespace, exp)
-				result = "{{else if " + code + "}}"
+				result = delimit("else if " + code)
 			}
 		} else if name == "else" {
-			result = "{{else}}"
+			result = delimit("else")
 		}
 	case BlockEndType:
 		pair := node.Pair
@@ -355,7 +359,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			if props["type"].Raw == "for" {
 				data := *pair.Data
 				// close index condition
-				result += "{{end}}"
+				result += delimit("end")
 				loops := data["Loops"]
 				for i, total := 0, len(loops); i < total; {
 					ast, expErr := exp.Parse(loops[i])
@@ -363,24 +367,25 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 						err = toError(expErr)
 						break
 					}
-					result += "{{" + gen.Build(ast, namespace, exp)
+					code := gen.Build(ast, namespace, exp)
 					ast, expErr = exp.Parse(loops[i+1])
 					if expErr != nil {
 						err = toError(expErr)
 						break
 					}
-					result += " = " + gen.Build(ast, namespace, exp) + "}}"
+					code += " = " + gen.Build(ast, namespace, exp)
+					result += delimit(code)
 					i += 2
 				}
 				if err == nil {
 					//  first: close range; last: close if
-					result += "{{end}}{{end}}"
+					result += delimit("end") + delimit("end")
 				}
 			} else {
-				result = "{{end}}"
+				result = delimit("end")
 			}
 		} else {
-			result = "{{end}}"
+			result = delimit("end")
 		}
 	default:
 		// types not assign
@@ -720,7 +725,7 @@ func validForTag(node *Node, conf *Config) (errmsg string) {
 						if isStepOn {
 							loops = append(loops, name+op+"1")
 						} else {
-							loops = append(loops, name+op+part[3])
+							loops = append(loops, name+op+part[2])
 						}
 					}
 				}
@@ -730,7 +735,10 @@ func validForTag(node *Node, conf *Config) (errmsg string) {
 					Raw: "for",
 				}
 			} else {
-				needTryForIn = !isSmartyMode
+				if isSmartyMode {
+					return "wrong synatx 'for' statement, please check the parser mode"
+				}
+				needTryForIn = true
 			}
 		}
 		if needTryForIn {
@@ -790,8 +798,6 @@ func validForTag(node *Node, conf *Config) (errmsg string) {
 			list = &Prop{
 				Raw: segs[inIndex+1],
 			}
-		} else {
-			return "wrong synatax 'for' statement, please check the parser mode"
 		}
 	}
 	if isForEach {
@@ -855,8 +861,14 @@ type Fet struct {
 func mergeConfig(options *Config) *Config {
 	conf := &Config{}
 	*conf = *defConfig
-	if options.LowerField {
-		conf.LowerField = true
+	if options.Mode > 0 {
+		conf.Mode = options.Mode
+	}
+	if options.LeftDelimiter != "" {
+		conf.LeftDelimiter = options.LeftDelimiter
+	}
+	if options.RightDelimiter != "" {
+		conf.RightDelimiter = options.RightDelimiter
 	}
 	if options.TemplateDir != "" {
 		conf.TemplateDir = options.TemplateDir
@@ -866,6 +878,9 @@ func mergeConfig(options *Config) *Config {
 	}
 	if options.CompileOnline {
 		conf.CompileOnline = true
+	}
+	if options.LowerField {
+		conf.LowerField = true
 	}
 	if options.Ignores != nil {
 		conf.Ignores = options.Ignores
@@ -971,6 +986,11 @@ func (fet *Fet) addVarPrefix(name string) string {
 		return name
 	}
 	return "$" + name
+}
+
+// wrap left delimiter, right delimiter
+func (fet *Fet) wrapCode(code string) string {
+	return "{{" + code + "}}"
 }
 
 // parse
@@ -1111,6 +1131,21 @@ LOOP:
 									addSpecial(name, node)
 									if isExtendsTag {
 										isSubTemplate = true
+										if len(blocks) > 0 {
+											err = node.halt("wrong 'extends' tag, can not use 'extends' in block tags")
+											break LOOP
+										} else {
+											for i, total := 0, len(queues); i < total-1; i++ {
+												curNode := queues[i]
+												if curNode.Type != CommentType && curNode.Type != TextType {
+													err = node.halt("the 'extends' tag must appear at the top of template")
+													break
+												}
+											}
+											if err != nil {
+												break LOOP
+											}
+										}
 									}
 								}
 							}

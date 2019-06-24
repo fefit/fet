@@ -139,10 +139,12 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 				i, total := 1, len(runes)
 				str.WriteString("(" + concatFn + SPACE)
 				for _, pos := range vars {
-					text := string(runes[i:pos.StartIndex])
-					str.WriteString("\"")
-					str.WriteString(text)
-					str.WriteString("\" ")
+					if pos.StartIndex > i {
+						text := string(runes[i:pos.StartIndex])
+						str.WriteString("\"")
+						str.WriteString(text)
+						str.WriteString("\" ")
+					}
 					express := string(runes[pos.StartIndex+1 : pos.EndIndex-1])
 					ast, _ := exp.Parse(express)
 					str.WriteString(gen.Build(ast, nsFn, exp))
@@ -150,6 +152,10 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 					if i >= total {
 						break
 					}
+				}
+				if i < total {
+					str.WriteString(" \"")
+					str.WriteString(string(runes[i-1 : total]))
 				}
 				str.WriteString(")")
 			} else {
