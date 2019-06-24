@@ -64,6 +64,7 @@ const (
 	Translate          = '\\'
 	Space              = ' '
 	Bitor              = "bitor"
+	Dollar             = '$'
 	VarSymbol          = '`'
 )
 
@@ -403,19 +404,23 @@ type IdentifierToken struct {
 // Add for identifiers
 func (identifier *IdentifierToken) Add(s rune) (ok bool, isComplete bool, retry bool, err error) {
 	stat := identifier.Stat
-	if isDigit := unicode.IsDigit(s); unicode.IsLetter(s) || isDigit || s == Underline {
+	if isDigit := unicode.IsDigit(s); unicode.IsLetter(s) || isDigit || s == Underline || s == Dollar {
 		if !identifier.IsBegin {
 			if isDigit {
 				return
 			}
 			identifier.IsBegin = true
+		} else if s == Dollar {
+			err = fmt.Errorf("the $ can only use in identifier head")
+			return
 		}
 		stat.Values = append(stat.Values, s)
 		ok = true
 		return
 	}
-	if len(stat.Values) == 1 && stat.Values[0] == Underline {
-		err = fmt.Errorf("can not use underline(_) as identifier")
+	vals := stat.Values
+	if len(vals) == 1 && (vals[0] == Underline || vals[0] == Dollar) {
+		err = fmt.Errorf("can not use single %s as identifier", string(vals[0]))
 		return
 	}
 	return identifier.Judge()

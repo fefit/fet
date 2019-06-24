@@ -16,7 +16,28 @@ type OperatorIntFn func(int64, int64) int64
 type ResultFloatFn func(args ...interface{}) float64
 type ResultIntFn func(args ...interface{}) int64
 type JSON map[string]interface{}
+type LoopChan struct {
+	Chan chan int
+	Loop int
+}
 
+func (lc *LoopChan) init() {
+	lc.Chan = make(chan int, 1)
+	lc.Loop = -1
+	lc.Next()
+}
+func (lc *LoopChan) Close() (string, error) {
+	lc.Loop = -1
+	close(lc.Chan)
+	return "", nil
+}
+func (lc *LoopChan) Next() (string, error) {
+	lc.Loop++
+	lc.Chan <- lc.Loop
+	return "", nil
+}
+
+// All combine
 func All() template.FuncMap {
 	injects := Inject()
 	helpers := Helpers()
@@ -25,6 +46,8 @@ func All() template.FuncMap {
 	}
 	return helpers
 }
+
+// Inject funcs
 func Inject() template.FuncMap {
 	injects := template.FuncMap{}
 	injects["INJECT_PLUS"] = generateFloatFunc(func(a, b float64) float64 {
@@ -55,9 +78,15 @@ func Inject() template.FuncMap {
 		return a ^ b
 	})
 	injects["INJECT_TO_FLOAT"] = toFloat
+	injects["INJECT_MAKE_LOOP_CHAN"] = func() (*LoopChan, error) {
+		loopChan := &LoopChan{}
+		loopChan.init()
+		return loopChan, nil
+	}
 	return injects
 }
 
+// Helpers funcs
 func Helpers() template.FuncMap {
 	helpers := template.FuncMap{}
 	helpers["safe"] = safe

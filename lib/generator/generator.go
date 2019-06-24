@@ -110,11 +110,9 @@ func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, str *stri
 			str.WriteString(val)
 		}
 	} else {
-		isVar, suffix := nsFn(name)
+		isVar, name := nsFn(name)
 		if isVar {
-			str.WriteString("$")
 			str.WriteString(name)
-			str.WriteString(suffix)
 		} else {
 			if fieldType != FuncName {
 				str.WriteString(".")

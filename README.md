@@ -3,7 +3,7 @@ FET is a go template engineer that can translate code to `text/template` code.
 
 FET能按自身支持的语法来将模板编译成text/template的模板语法，当然这只是第一步。
 
-## Why FET
+## [FET的来由]Why FET
 FET means Friendly, Easily for Templating.`text/template` has a basic support for templating, but it's not easy to use, so you need FET.
 
 `text/template` 作为go官方的模板引擎，虽然基础的功能已有支持，但对于开发人员来说，其书写语法十分原始，写起来很困难，所以这才有了FET。
@@ -31,11 +31,26 @@ it's more like the php template engineer smarty.
 
   `{{include "header.html"}}`
 
-- [循环]loop
+- [循环]loop, do not support `break` `continue`
   
-  `{{for item,key in list}}`
-
-  `{{/for}}`
+  ```go
+  // for Gofet mode
+  {{for item,key in list}}
+    // output
+  {{/for}}
+  
+  {{for i = 0, j = 10; i < j; i++}}
+    // output
+  {{/for}}
+  // for Smarty mode
+  {{foreach $list as $key => $item}
+    // output
+  {{/foreach}}}
+  // for
+  {{for $i = 0, $j = 10; $i < $j; $i++}}
+    // output
+  {{/for}}
+  ```
 
 - [条件判断]if condition
   
@@ -86,13 +101,26 @@ it's more like the php template engineer smarty.
   
   使用 ` `` `符号来包裹变量或者表达式来达到拼接字符串的目的，`+`号仅用作数字类型的加法运算，请勿使用。
 
-### [内置的函数]Func Maps
+### [内置的函数]Func Maps  
+
+  [view func.go](./lib/funcs/func.go)
+### [渲染模式]Config types.Mode  
+  - types.Smarty  
+  the variable and field must begin with `$`, use `foreach` tag for loops.  
+  变量和字段必须使用$符号做为开头，否则会报错，无法编译。按照smarty的方式使用foreach来做循环。
+  
+  - types.Gofet  
+  the variable and field mustn't begin with `$`, use `for` tag for loops.  
+  变量和字段不能以$符号开头，否则会报错，无法编译。 
 
 ### [示例代码]Demo code
 ```go
 package main
 
-import "fet"
+import (
+  "github.com/fefit/fet"
+  "github.com/fefit/fet/types"
+)
 
 func main(){
   conf := &fet.Config{
@@ -101,6 +129,7 @@ func main(){
     Ignores: []string{"inc/*"}, // ignore compile paths,files that only will include.use filepath.Match
     LowerField: true, // default false, if true will not translate keys to uppercase.
     CompileOnline: false, // default false, you should compile your template files offline 
+    Mode: types.Smarty, // default types.Smarty, also can be "types.Gofet"
   }
   fet, _ := fet.New(conf)
   // compile all files
@@ -123,9 +152,9 @@ func main(){
 
   编译所有需要编译的文件，除了那些在Ignores配置中设置了无需编译的文件。
 
-- `fet.Display(tpl string, data interface{}) error`
+- `fet.Display(tpl string, data interface{}, output io.Wirter) error`
 
-  render the parsed code into `io.Stdout`,output it.  
+  render the parsed html code into `output`.  
 
   将模板文件渲染后的结果输出显示。
 

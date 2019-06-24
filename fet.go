@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"io/ioutil"
 	"os"
 	"path"
@@ -32,7 +33,10 @@ type Runes []rune
 type MatchTagFn func(strs *Runes, index int, total int) (int, bool)
 
 // ValidateFn func
-type ValidateFn func(node *Node) string
+type ValidateFn func(node *Node, conf *Config) string
+
+// Mode for parser type
+type Mode = types.Mode
 
 // Config struct
 type Config struct {
@@ -44,6 +48,7 @@ type Config struct {
 	LowerField     bool
 	CompileOnline  bool
 	Ignores        []string
+	Mode           Mode
 }
 
 // Params struct
@@ -97,11 +102,12 @@ type CompileOptions struct {
 // Node struct
 type Node struct {
 	Parent       *Node
+	Pair         *Node
 	Type         Type
 	Name         string
 	Content      string
 	Pwd          string
-	Props        Props
+	Props        *Props
 	IsClosed     bool
 	Features     []*Node
 	Childs       []*Node
@@ -111,6 +117,7 @@ type Node struct {
 	GlobalScopes []string
 	LocalScopes  []string
 	Fet          *Fet
+	Data         *map[string][]string
 	Indexs
 	*Position
 }
@@ -134,11 +141,13 @@ var (
 		CompileOnline:  false,
 		LowerField:     false,
 		Ignores:        []string{"inc/*"},
+		Mode:           types.Smarty,
 	}
 	supportTags = map[string]Type{
 		"include": SingleType,
 		"extends": SingleType,
 		"for":     BlockStartType,
+		"foreach": BlockStartType,
 		"if":      BlockStartType,
 		"elseif":  BlockFeatureType,
 		"else":    BlockFeatureType,
@@ -149,6 +158,7 @@ var (
 		"else":    validElseTag,
 		"elseif":  validElseifTag,
 		"for":     validForTag,
+		"foreach": validForTag,
 		"block":   validBlockTag,
 		"include": validIncludeTag,
 		"extends": validExtendsTag,
@@ -179,7 +189,7 @@ func (node *Node) AddFeature(feature *Node) {
 // Compile method for Node
 func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	fet := node.Fet
-	exp, gen := fet.exp, fet.gen
+	exp, gen, conf := fet.exp, fet.gen, fet.Config
 	includes, extends := options.Includes, options.Extends
 	name, content := node.Name, node.Content
 	ld, rd := fet.LeftDelimiter, fet.RightDelimiter
@@ -187,13 +197,21 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	parentNS, localNS := options.ParentNS, options.LocalNS
 	copyScopes := append([]string{}, *localScopes...)
 	currentScopes := append(copyScopes, node.GlobalScopes...)
+	addVarPrefix := "$"
+	isSmartyMode := conf.Mode == types.Smarty
+	if isSmartyMode {
+		addVarPrefix = ""
+	}
 	namespace := func(name string) (bool, string) {
 		if contains(currentScopes, name) {
-			return true, localNS
+			return true, addVarPrefix + name + localNS
 		} else if contains(parentScopes, name) {
-			return true, parentNS
+			return true, addVarPrefix + name + parentNS
 		}
-		return false, ""
+		if isSmartyMode {
+			return false, strings.TrimLeft(name, "$")
+		}
+		return false, name
 	}
 	toError := func(err error) error {
 		return node.halt(err.Error())
@@ -204,17 +222,22 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	case TextType:
 		result = strings.TrimSpace(content)
 	case AssignType, OutputType:
+		isAssign := node.Type == AssignType
+
+		if isAssign && !utils.IsIdentifier(name, conf.Mode) {
+			err = node.halt("syntax error: wrong variable name '%s', please check the parser mode", name)
+			break
+		}
 		ast, expErr := exp.Parse(content)
 		if expErr != nil {
 			err = toError(expErr)
 		} else {
-			//
-			if node.Type == AssignType {
+			if isAssign {
 				if _, ok := generator.LiteralSymbols[name]; ok {
-					err = fmt.Errorf("syntax error: can not set literal '%s' as a variable", name)
+					err = node.halt("syntax error: can not set literal '%s' as a variable name", name)
 					break
 				}
-				result = ld + "$" + name + localNS + ":=" + gen.Build(ast, namespace, exp) + rd
+				result = ld + addVarPrefix + name + localNS + " := " + gen.Build(ast, namespace, exp) + rd
 			} else {
 				result = "{{" + gen.Build(ast, namespace, exp) + "}}"
 			}
@@ -226,7 +249,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			ctx.Write([]byte(tpl))
 			curNS := hex.EncodeToString(ctx.Sum(nil))
 			if contains(*includes, tpl) || contains(*extends, tpl) {
-				err = fmt.Errorf("the include file '%s' has a loop dependence", tpl)
+				err = node.halt("the include file '%s' has a loop dependence", tpl)
 			} else {
 				incOptions := &CompileOptions{
 					ParentNS:     localNS,
@@ -247,16 +270,57 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			// load file because of variable scopes
 		}
 	case BlockStartType:
-		if name == "for" {
-			props := node.Props
-			target := props["list"].Raw
-			ast, expErr := exp.Parse(target)
-			if expErr != nil {
-				err = toError(expErr)
+		if name == "for" || name == "foreach" {
+			props := *node.Props
+			if props["type"].Raw == "foreach" {
+				target := props["list"].Raw
+				ast, expErr := exp.Parse(target)
+				if expErr != nil {
+					err = toError(expErr)
+				} else {
+					code := gen.Build(ast, namespace, exp)
+					key := props["key"].Raw
+					result = "{{range "
+					if key != "" {
+						result += addVarPrefix + key + localNS + ", "
+					}
+					result += addVarPrefix + props["value"].Raw + localNS + " := " + code + "}}"
+				}
 			} else {
-				code := gen.Build(ast, namespace, exp)
-				key := props["key"].Raw
-				result = "{{range $" + key + localNS + ", $" + props["item"].Raw + localNS + " := " + code + "}}"
+				data := *node.Data
+				vars := data["Vars"]
+				initial := data["Initial"]
+				res := strings.Builder{}
+				// add if block for variable context
+				res.WriteString("{{if true}}")
+				for key, name := range vars {
+					ast, expErr := exp.Parse(initial[key])
+					if expErr != nil {
+						err = toError(expErr)
+						break
+					}
+					res.WriteString("{{" + addVarPrefix + name + localNS + ":=" + gen.Build(ast, namespace, exp) + "}}")
+				}
+				suffixNS := indexString(node.StartIndex) + "_" + indexString(node.EndIndex) + localNS
+				chanName := "$loop_" + suffixNS
+				res.WriteString("{{" + chanName + " := (INJECT_MAKE_LOOP_CHAN)}}")
+				res.WriteString("{{range " + chanName + ".Chan}}")
+				// Add condition code
+				conds := data["Conds"][0]
+				// add initial declares
+				currentScopes = append(currentScopes, vars...)
+				ast, expErr := exp.Parse(conds)
+				if expErr != nil {
+					err = toError(expErr)
+				} else {
+					res.WriteString("{{if " + gen.Build(ast, namespace, exp) + "}}")
+					res.WriteString("{{" + chanName + ".Next}}")
+					res.WriteString("{{else}}")
+					res.WriteString("{{" + chanName + ".Close}}")
+					res.WriteString("{{end}}")
+					res.WriteString("{{if (gt " + chanName + ".Loop -1)}}")
+				}
+				result = res.String()
 			}
 		} else if name == "if" {
 			ast, expErr := exp.Parse(content)
@@ -280,10 +344,40 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			result = "{{else}}"
 		}
 	case BlockEndType:
+		pair := node.Pair
 		if name == "block" {
-			blockScopes := node.LocalScopes
+			blockScopes := pair.LocalScopes
 			if len(blockScopes) > 0 {
 				*options.LocalScopes = append(*options.LocalScopes, blockScopes...)
+			}
+		} else if name == "for" {
+			props := *pair.Props
+			if props["type"].Raw == "for" {
+				data := *pair.Data
+				// close index condition
+				result += "{{end}}"
+				loops := data["Loops"]
+				for i, total := 0, len(loops); i < total; {
+					ast, expErr := exp.Parse(loops[i])
+					if expErr != nil {
+						err = toError(expErr)
+						break
+					}
+					result += "{{" + gen.Build(ast, namespace, exp)
+					ast, expErr = exp.Parse(loops[i+1])
+					if expErr != nil {
+						err = toError(expErr)
+						break
+					}
+					result += " = " + gen.Build(ast, namespace, exp) + "}}"
+					i += 2
+				}
+				if err == nil {
+					//  first: close range; last: close if
+					result += "{{end}}{{end}}"
+				}
+			} else {
+				result = "{{end}}"
 			}
 		} else {
 			result = "{{end}}"
@@ -355,13 +449,13 @@ func validIfOnlyOneStrParam(node *Node) (errmsg string) {
 }
 
 // tag validators
-func validIfTag(node *Node) (errmsg string) {
+func validIfTag(node *Node, conf *Config) (errmsg string) {
 	if node.Content == "" {
 		errmsg = "the \"if\" tag does not have a condition expression"
 	}
 	return
 }
-func validElseTag(node *Node) (errmsg string) {
+func validElseTag(node *Node, conf *Config) (errmsg string) {
 	if node.Content != "" {
 		errmsg = "the \"else\" tag should not use a condition expression"
 	} else if errmsg = validIfPrevCondOk(node); errmsg == "" {
@@ -369,7 +463,7 @@ func validElseTag(node *Node) (errmsg string) {
 	}
 	return
 }
-func validElseifTag(node *Node) (errmsg string) {
+func validElseifTag(node *Node, conf *Config) (errmsg string) {
 	if node.Content == "" {
 		errmsg = "the \"elseif\" tag does not have a condition expression"
 	} else if errmsg = validIfPrevCondOk(node); errmsg == "" {
@@ -377,7 +471,7 @@ func validElseifTag(node *Node) (errmsg string) {
 	}
 	return
 }
-func validBlockTag(node *Node) (errmsg string) {
+func validBlockTag(node *Node, conf *Config) (errmsg string) {
 	block := node.Parent
 	if block != nil && block.Parent != nil {
 		errmsg = "the \"block\" tag should be root tag,can not appears in \"" + block.Parent.Name + "\""
@@ -386,78 +480,342 @@ func validBlockTag(node *Node) (errmsg string) {
 	}
 	return
 }
-func validForTag(node *Node) (errmsg string) {
+func validForTag(node *Node, conf *Config) (errmsg string) {
+	name := node.Name
 	content := node.Content
 	runes := Runes(node.Content)
-	hasKey := false
-	isComma := false
-	prevIsSpace := true
-	prevIsComma := false
 	segs := []string{}
 	total := 0
 	maxNum := 2
-	for index, s := range runes {
-		if unicode.IsSpace(s) {
-			prevIsSpace = true
-			if total >= maxNum {
-				segs = append(segs, string(runes[index+1:]))
-				break
+	prevIsSpace := true
+	hasKey := false
+	normalErr := "the \"" + content + "\" tag is not correct"
+	isSmartyMode := conf.Mode == types.Smarty
+	var (
+		list, key, value *Prop
+	)
+	isForEach := false
+	if name == "foreach" {
+		if isSmartyMode {
+			isForEach = true
+			count := len(runes)
+			isArrow, prevIsArrow := false, false
+			for count > 0 {
+				count--
+				s := runes[count]
+				if unicode.IsSpace(s) {
+					prevIsSpace = true
+					if total >= maxNum {
+						segs = append(segs, string(runes[:count]))
+						break
+					}
+				} else {
+					if s == '>' && count >= 1 && runes[count-1] == '=' {
+						hasKey = true
+						maxNum += 2
+						isArrow = true
+						prevIsArrow = true
+						count--
+					}
+					if prevIsSpace || isArrow || prevIsArrow {
+						if isArrow {
+							segs = append(segs, "=>")
+							isArrow = false
+						} else {
+							segs = append(segs, string(s))
+							if prevIsArrow {
+								prevIsArrow = false
+							}
+						}
+						total++
+					} else {
+						segs[total-1] = string(s) + segs[total-1]
+					}
+					prevIsSpace = false
+				}
+			}
+			total = len(segs)
+			if total != maxNum+1 {
+				errmsg = normalErr
+			} else {
+				if (hasKey && segs[1] != "=>") || segs[total-2] != "as" {
+					return "wrong syntax \"foreach\" block, please check the compile mode"
+				}
+				list = &Prop{
+					Raw: segs[total-1],
+				}
+				if !hasKey {
+					key = &Prop{
+						Raw: "",
+					}
+				} else {
+					key = &Prop{
+						Raw: segs[total-3],
+					}
+				}
+				value = &Prop{
+					Raw: segs[0],
+				}
 			}
 		} else {
-			if s == ',' {
-				hasKey = true
-				isComma = true
-				prevIsComma = true
-				maxNum += 2
+			return "the Gofet mode does not support 'foreach' block, use 'for' instead"
+		}
+	} else {
+		needTryForIn := true
+		if isSmartyMode || len(strings.Split(content, ";")) >= 3 {
+			needTryForIn = false
+			i := 0
+			num := len(runes)
+			colon := ';'
+			part := []string{}
+			allParts := [][][]string{}
+			isInCont := false
+			isInTranslate := false
+			isInQuote := false
+			bLevel := 0
+			addParts := func(part []string) {
+				if len(allParts) <= total {
+					allParts = append(allParts, [][]string{})
+				}
+				allParts[total] = append(allParts[total], part)
 			}
-			if prevIsSpace || isComma || prevIsComma {
-				segs = append(segs, string(s))
-				total++
-				if isComma {
-					isComma = false
-				} else if prevIsComma {
-					prevIsComma = false
+			for i < num && total < 3 {
+				s := runes[i]
+				ch := string(s)
+				count := len(part)
+				i++
+				if isInQuote || isInTranslate {
+					// check if is quote or translate
+					part[count-1] += ch
+					if isInTranslate {
+						isInTranslate = false
+					} else {
+						if s == '"' {
+							isInQuote = false
+						} else if s == '\\' {
+							isInTranslate = true
+						}
+					}
+				} else {
+					if unicode.IsSpace(s) {
+						// empty
+						if isInCont {
+							part[count-1] += ch
+						}
+						continue
+					}
+					if s == '"' {
+						isInQuote = true
+					} else if s == '(' {
+						bLevel++
+					} else if s == ')' {
+						bLevel--
+					} else if bLevel == 0 {
+						isColon := s == colon
+						if isColon || s == ',' {
+							addParts(part)
+							if isColon {
+								total++
+							}
+							part = []string{}
+							isInCont = false
+							continue
+						} else {
+							if total == 0 {
+								if s == '=' {
+									part = append(part, "=")
+									isInCont = false
+									continue
+								}
+							} else if total == 2 {
+								if s == '-' || s == '+' {
+									if i >= num {
+										errmsg = "wrong iterator done"
+										break
+									} else {
+										next := runes[i]
+										if next == '=' || next == s {
+											part = append(part, ch+string(next))
+											i++
+										} else {
+											errmsg = "wrong iterator done"
+											break
+										}
+									}
+									isInCont = false
+									continue
+								}
+							}
+						}
+					}
+					if !isInCont {
+						part = append(part, ch)
+						isInCont = true
+					} else {
+						part[count-1] += ch
+					}
+				}
+
+			}
+			if len(part) > 0 {
+				addParts(part)
+			}
+			if len(allParts) == 3 {
+				if errmsg != "" {
+					return errmsg
+				}
+				node.Data = &map[string][]string{}
+				data := *node.Data
+				initial, conds, lastRuns := allParts[0], allParts[1], allParts[2]
+				// parse initials
+				vars := []string{}
+				declares := []string{}
+				for _, part := range initial {
+					name := strings.TrimSpace(part[0])
+					if len(part) != 3 || part[1] != "=" || !utils.IsIdentifier(name, conf.Mode) {
+						return "wrong for initial"
+					}
+					vars = append(vars, name)
+					declares = append(declares, part[2])
+				}
+				data["Vars"] = vars
+				data["Initial"] = declares
+				// parse break or continue conds
+				cond := ""
+				for _, part := range conds {
+					if len(part) == 1 {
+						cur := strings.TrimSpace(part[0])
+						if cur != "" {
+							if cond != "" {
+								cond += " && "
+							}
+							cond += cur
+						}
+					}
+				}
+				if cond == "" {
+					return "wrong for condition sentence"
+				}
+				lastCond := []string{}
+				lastCond = append(lastCond, cond)
+				data["Conds"] = lastCond
+				// parse loops
+				loops := []string{}
+				for _, part := range lastRuns {
+					count := len(part)
+					if count <= 1 {
+						return "wrong 'for' last loop"
+					}
+					name, symbol := strings.TrimSpace(part[0]), part[1]
+					if !utils.IsIdentifier(name, conf.Mode) {
+						return "wrong for identifier '" + name + "'"
+					}
+					op := string(([]rune(symbol))[0])
+					isStepOn := symbol == "++" || symbol == "--"
+					if isStepOn || (symbol == "+=" || symbol == "-=") {
+						if (isStepOn && count > 2 && strings.TrimSpace(part[2]) != "") || (!isStepOn && (count != 3 || strings.TrimSpace(part[2]) == "")) {
+							return "wrong for loop"
+						}
+						loops = append(loops, name)
+						if isStepOn {
+							loops = append(loops, name+op+"1")
+						} else {
+							loops = append(loops, name+op+part[3])
+						}
+					}
+				}
+				data["Loops"] = loops
+				props := *node.Props
+				props["type"] = &Prop{
+					Raw: "for",
 				}
 			} else {
-				segs[total-1] += string(s)
+				needTryForIn = !isSmartyMode
 			}
-			prevIsSpace = false
 		}
-	}
-	if len(segs) < 3 {
-		errmsg = "the \"" + content + "\" tag is not correct"
-	} else {
-		inIndex := 1
-		if hasKey && segs[1] == "," {
-			inIndex = 3
-		}
-		if segs[inIndex] != "in" {
-			errmsg = "wrong syntax \"for\" block"
-		} else {
-			node.Props["item"] = &Prop{
+		if needTryForIn {
+			isForEach = true
+			isComma := false
+			prevIsComma := false
+			for index, s := range runes {
+				if unicode.IsSpace(s) {
+					prevIsSpace = true
+					if total >= maxNum {
+						segs = append(segs, string(runes[index+1:]))
+						break
+					}
+				} else {
+					if s == ',' {
+						hasKey = true
+						isComma = true
+						prevIsComma = true
+						maxNum += 2
+					}
+					if prevIsSpace || isComma || prevIsComma {
+						segs = append(segs, string(s))
+						total++
+						if isComma {
+							isComma = false
+						} else if prevIsComma {
+							prevIsComma = false
+						}
+					} else {
+						segs[total-1] += string(s)
+					}
+					prevIsSpace = false
+				}
+			}
+			if len(segs) != maxNum+1 {
+				return normalErr
+			}
+			inIndex := 1
+			if hasKey && segs[1] == "," {
+				inIndex = 3
+			}
+			if segs[inIndex] != "in" {
+				return "wrong syntax \"for\" block"
+			}
+			value = &Prop{
 				Raw: segs[0],
 			}
-			if inIndex == 1 {
-				node.Props["key"] = &Prop{
-					Raw: "_",
+			if !hasKey {
+				key = &Prop{
+					Raw: "",
 				}
 			} else {
-				node.Props["key"] = &Prop{
+				key = &Prop{
 					Raw: segs[inIndex-1],
 				}
 			}
-			node.Props["list"] = &Prop{
+			list = &Prop{
 				Raw: segs[inIndex+1],
 			}
+		} else {
+			return "wrong synatax 'for' statement, please check the parser mode"
+		}
+	}
+	if isForEach {
+		if !utils.IsIdentifier(value.Raw, conf.Mode) {
+			return fmt.Sprintf("the 'for' label's value '%s' is a wrong identifier", value.Raw)
+		}
+		if hasKey && !utils.IsIdentifier(key.Raw, conf.Mode) {
+			return fmt.Sprintf("the 'for' label's key '%s' is a wrong identifier", key.Raw)
+		}
+		props := *node.Props
+		props["key"] = key
+		props["value"] = value
+		props["list"] = list
+		props["type"] = &Prop{
+			Raw: "foreach",
 		}
 	}
 	return
 }
-func validIncludeTag(node *Node) (errmsg string) {
+func validIncludeTag(node *Node, conf *Config) (errmsg string) {
 	errmsg = validIfOnlyOneStrParam(node)
 	return
 }
-func validExtendsTag(node *Node) (errmsg string) {
+func validExtendsTag(node *Node, conf *Config) (errmsg string) {
 	if node.Parent != nil {
 		errmsg = "the \"extends\" tag should be root tag,can not appears in \"" + node.Parent.Name + "\""
 	} else {
@@ -467,7 +825,7 @@ func validExtendsTag(node *Node) (errmsg string) {
 }
 
 // Validate method for Node
-func (node *Node) Validate() (errmsg string) {
+func (node *Node) Validate(conf *Config) (errmsg string) {
 	if node.Type == UnknownType {
 		errmsg = "unknown type"
 	} else if !node.IsClosed {
@@ -475,7 +833,7 @@ func (node *Node) Validate() (errmsg string) {
 	} else {
 		name := node.Name
 		if fn, exists := validateFns[name]; exists {
-			errmsg = fn(node)
+			errmsg = fn(node, conf)
 		}
 	}
 	return
@@ -558,7 +916,7 @@ func New(config *Config) (fet *Fet, err error) {
 		datas:  make(map[string]interface{}),
 		cwd:    cwd,
 	}
-	tmpl := template.New("root")
+	tmpl := template.New("")
 	tmpl = tmpl.Funcs(funcs.All())
 	fet.tmpl = tmpl
 	fet.compileDir = fet.getLastDir(config.CompileDir)
@@ -605,6 +963,17 @@ func closeTag(node *Node, endIndex int) {
 	node.IsClosed = true
 	node.EndIndex = endIndex + 1
 }
+
+// add variable prefix
+func (fet *Fet) addVarPrefix(name string) string {
+	conf := fet.Config
+	if conf.Mode == types.Smarty {
+		return name
+	}
+	return "$" + name
+}
+
+// parse
 func (fet *Fet) parse(codes string, pwd string) (result *NodeList, err error) {
 	var (
 		isInComment, isTagStart, isInBlockTag, isSubTemplate bool
@@ -758,7 +1127,7 @@ LOOP:
 							err = node.halt("the variable name is empty")
 							break
 						}
-						if utils.IsIdentifier(ident) {
+						if utils.IsIdentifier(ident, types.AnyMode) {
 							node.Type = AssignType
 							markIndex = i
 							setFeatureChild(node)
@@ -830,13 +1199,12 @@ LOOP:
 									} else {
 										node.Name = name
 										closeTag(block, curIndex)
+										current := block.Current
 										if name == "block" {
 											isInBlockTag = false
-											current := block.Current
-											node.LocalScopes = current.LocalScopes[:]
-											node.Content = current.Content
 											current.Childs = queues[blockStartIndex:len(queues)]
 										}
+										node.Pair = current
 										popGlobals(block)
 										blocks = blocks[:len(blocks)-1]
 									}
@@ -846,19 +1214,27 @@ LOOP:
 							// validate tag
 							noSpaceIndex := ltrimIndex(&strs, markIndex+1, i)
 							node.Content = rtrim(&strs, noSpaceIndex, i)
-							if errmsg := node.Validate(); errmsg != "" {
+							if errmsg := node.Validate(fet.Config); errmsg != "" {
 								err = node.halt(errmsg)
 								break
 							}
-							if node.Type == BlockStartType && node.Name == "for" && isNeedScope() {
-								props := node.Props
-								itemProp := props["item"]
-								keyProp := props["key"]
-								globals = append(globals, itemProp.Raw)
-								node.LocalScopes = append(node.LocalScopes, itemProp.Raw)
-								if keyProp.Raw != "_" {
-									globals = append(globals, keyProp.Raw)
-									node.LocalScopes = append(node.LocalScopes, keyProp.Raw)
+							if node.Type == BlockStartType && (node.Name == "for" || node.Name == "foreach") && isNeedScope() {
+								props := *node.Props
+								forType := props["type"].Raw
+								if forType == "foreach" {
+									valueProp := props["value"]
+									keyProp := props["key"]
+									globals = append(globals, valueProp.Raw)
+									node.LocalScopes = append(node.LocalScopes, valueProp.Raw)
+									if keyProp.Raw != "" {
+										globals = append(globals, keyProp.Raw)
+										node.LocalScopes = append(node.LocalScopes, keyProp.Raw)
+									}
+								} else {
+									data := *node.Data
+									vars := data["Vars"]
+									globals = append(globals, vars...)
+									node.LocalScopes = append(node.LocalScopes, vars...)
 								}
 							}
 							setFeatureChild(node)
@@ -894,7 +1270,7 @@ LOOP:
 						StartIndex: i,
 					},
 					Position:     position,
-					Props:        Props{},
+					Props:        &Props{},
 					Context:      &strs,
 					Fet:          fet,
 					GlobalScopes: globals,
@@ -914,11 +1290,6 @@ LOOP:
 						}
 						next = string(strs[noSpaceIndex])
 					}
-					// if next == "=" || next == "-" {
-					// 	// output
-					// 	node.Type = OutputType
-					// 	curIndex = nextIndex
-					// } else
 					if next == "/" {
 						// end block
 						node.Type = BlockEndType
@@ -976,7 +1347,7 @@ LOOP:
 }
 
 // Display method
-func (fet *Fet) Display(tpl string, data interface{}) (err error) {
+func (fet *Fet) Display(tpl string, data interface{}, output io.Writer) (err error) {
 	conf := fet.Config
 	if conf.CompileOnline {
 		var result string
@@ -992,7 +1363,7 @@ func (fet *Fet) Display(tpl string, data interface{}) (err error) {
 		}
 		return err
 	}
-	tmpl := fet.tmpl
+	tmpl, _ := fet.tmpl.Clone()
 	if buf, rErr := ioutil.ReadFile(compileFile); rErr != nil {
 		err = rErr
 	} else {
@@ -1000,7 +1371,7 @@ func (fet *Fet) Display(tpl string, data interface{}) (err error) {
 		if pErr != nil {
 			err = pErr
 		} else {
-			err = t.Execute(os.Stdout, data)
+			err = t.Execute(output, data)
 		}
 	}
 	return err
@@ -1008,8 +1379,8 @@ func (fet *Fet) Display(tpl string, data interface{}) (err error) {
 
 // Fetch method
 func (fet *Fet) Fetch(tpl string, data interface{}) (result string, err error) {
-	tmpl := fet.tmpl
-	if code, cErr := fet.Compile(tpl, false); err != nil {
+	tmpl, _ := fet.tmpl.Clone()
+	if code, cErr := fet.Compile(tpl, false); cErr != nil {
 		err = cErr
 	} else {
 		t, pErr := tmpl.Parse(code)
