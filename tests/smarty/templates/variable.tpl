@@ -1,0 +1,2 @@
+{%$test = "hello fet!"%}
+{%$test%}

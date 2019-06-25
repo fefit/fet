@@ -1,0 +1,2 @@
+{%$name = "fet"%}
+{%"hello `$name`!"%}
