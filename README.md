@@ -35,48 +35,48 @@ it's more like the php template engineer smarty.
 
   `{%include "header.html"%}`
 
-- [循环]loop, do not support `break` `continue`
+- [循环]loop, do not support keyword `break` `continue`
   
   ```go
   // for Gofet mode
-  {{for item,key in list}}
+  {%for item,key in list%}
     // output
-  {{/for}}
+  {%/for%}
   
-  {{for i = 0, j = 10; i < j; i++}}
+  {%for i = 0, j = 10; i < j; i++%}
     // output
-  {{/for}}
+  {%/for%}
   // for Smarty mode
-  {{foreach $list as $key => $item}
+  {%foreach $list as $key => $item%}
     // output
-  {{/foreach}}}
+  {%/foreach%}
   // for
-  {{for $i = 0, $j = 10; $i < $j; $i++}}
+  {%for $i = 0, $j = 10; $i < $j; $i++%}
     // output
-  {{/for}}
+  {%/for%}
   ```
 
 - [条件判断]if condition
   
-  `{{if $num > 100}}`
+  `{%if $num > 100%}`
   
-  `{{elseif $num < 50}}`
+  `{%elseif $num < 50%}`
   
-  `{{else}}`
+  `{%else%}`
   
-  `{{/if}}`
+  `{%/if%}`
 
 - [数据输出]output
   
-  `{{$item.url}}`
+  `{%$item.url%}`
 
 - [使用方法管道]pipe funcs
 
-  `{{$item.title|truncate:30}}`
+  `{%$item.title|truncate:30%}`
 
 - [定义变量]variable assign
   
-  `{{$title = "this is a title"}}`
+  `{%$title = "this is a title"%}`
 
 ### [表达式支持]Expression
   
@@ -98,8 +98,8 @@ it's more like the php template engineer smarty.
   scientific notation `1e10`
 ### [字符串拼接]Characters concat  
   ```go
-  {{ $var = "world" }}
-  {{ "hello `$var`"}} // output "hello world"
+  {% $sayHello = "world" %}
+  {% "hello `$sayHello`"%} // output "hello world"
   ```
   use ` `` ` for variable or expression in strings. do not use `+`.
   
@@ -107,7 +107,8 @@ it's more like the php template engineer smarty.
 
 ### [内置的函数]Func Maps  
 
-  [view func.go](./lib/funcs/func.go)
+  [view func.go](./lib/funcs/funcs.go)
+  
 ### [渲染模式]Config types.Mode  
   - types.Smarty  
   the variable and field must begin with `$`, use `foreach` tag for loops.  

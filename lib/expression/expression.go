@@ -1375,7 +1375,7 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 						root.Operator = ""
 					}
 					if isNextTokenNode {
-						fnNode.Arguments = nextNode.Arguments
+						fnNode.Arguments = append(fnNode.Arguments, nextNode)
 					} else {
 						if op, ok := nextNode.Token.(*OperatorToken); ok && op.Name == ")" {
 							// do nothing
@@ -1401,6 +1401,8 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 			parsed = append(parsed, token)
 		}
 	}
+	//
+
 	if len(parsed) == 1 {
 		curToken := parsed[0]
 		if result, ok := curToken.(*TokenNode); ok {
@@ -1527,7 +1529,7 @@ func (exp *Expression) tokenize(context string) (tokens []AnyToken, err error) {
 	}
 	// ignore test space token, because it is not complete
 	lasts := parser.Tokens
-	// spew.Dump(lasts[0])
+	// spew.Dump(lasts)
 	EOF := &EOFToken{}
 	if _, err = EOF.Validate(lasts); err != nil {
 		return nil, err

@@ -67,13 +67,18 @@ var (
 		"null":  "nil",
 		"nil":   "nil",
 	}
+	// NoNeedIndexFuncs funcs
+	NoNeedIndexFuncs = map[string]bool{
+		"empty": true,
+		"isset": true,
+	}
 )
 
 // Build for code
 func (gen *Generator) Build(node *Node, nsFn t.NamespaceFn, exp *e.Expression) string {
 	// conf := gen.Conf
 	var str strings.Builder
-	gen.parseRecursive(node, nsFn, &str, exp)
+	gen.parseRecursive(node, nsFn, &str, exp, false)
 	return str.String()
 }
 
@@ -83,7 +88,7 @@ func (gen *Generator) wrapToFloat(node *Node, nsFn t.NamespaceFn, str *strings.B
 		str.WriteString(toFloatFn)
 		str.WriteString(SPACE)
 	}
-	gen.parseRecursive(node, nsFn, str, exp)
+	gen.parseRecursive(node, nsFn, str, exp, false)
 	if isNative {
 		str.WriteString(")")
 	}
@@ -125,9 +130,13 @@ func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, str *stri
 	}
 }
 
-func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *strings.Builder, exp *e.Expression) {
+func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *strings.Builder, exp *e.Expression, noObjectIndex bool) {
 	curType := node.Type
 	conf := gen.Conf
+	isNot := node.Operator == "!"
+	if isNot {
+		str.WriteString("(not ")
+	}
 	if curType == "raw" {
 		token := node.Token
 		switch t := token.(type) {
@@ -171,7 +180,9 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 	} else if curType == "object" {
 		args := node.Arguments
 		total := len(args)
-		str.WriteString("(index ")
+		if !noObjectIndex {
+			str.WriteString("(index ")
+		}
 		root := node.Root
 		isParsed := false
 		if root.Type == "raw" {
@@ -181,7 +192,7 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 			}
 		}
 		if !isParsed {
-			gen.parseRecursive(root, nsFn, str, exp)
+			gen.parseRecursive(root, nsFn, str, exp, noObjectIndex)
 		}
 		str.WriteString(SPACE)
 		for i := 0; i < total; i++ {
@@ -213,13 +224,15 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 						gen.parseIdentifier(ident, nsFn, str, ObjectField)
 					}
 				} else {
-					gen.parseRecursive(cur, nsFn, str, exp)
+					gen.parseRecursive(cur, nsFn, str, exp, noObjectIndex)
 				}
 			} else {
-				gen.parseRecursive(cur, nsFn, str, exp)
+				gen.parseRecursive(cur, nsFn, str, exp, noObjectIndex)
 			}
 		}
-		str.WriteString(")")
+		if !noObjectIndex {
+			str.WriteString(")")
+		}
 	} else if curType == "function" {
 		root := node.Root
 		args := node.Arguments
@@ -227,19 +240,23 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 		isParsed := false
 		if root.Type == "raw" {
 			if t, ok := root.Token.(*e.IdentifierToken); ok {
-				gen.parseIdentifier(string(t.Stat.Values), nsFn, str, FuncName)
+				name := string(t.Stat.Values)
+				gen.parseIdentifier(name, nsFn, str, FuncName)
+				if _, ok := NoNeedIndexFuncs[name]; ok {
+					noObjectIndex = true
+				}
 				isParsed = true
 			}
 		}
 		if !isParsed {
-			gen.parseRecursive(root, nsFn, str, exp)
+			gen.parseRecursive(root, nsFn, str, exp, noObjectIndex)
 		}
 		str.WriteString(SPACE)
 		for i, total := 0, len(args); i < total; i++ {
 			if i > 0 {
 				str.WriteString(SPACE)
 			}
-			gen.parseRecursive(args[i], nsFn, str, exp)
+			gen.parseRecursive(args[i], nsFn, str, exp, noObjectIndex)
 		}
 		str.WriteString(")")
 	} else {
@@ -256,6 +273,9 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 		gen.wrapToFloat(node.Left, nsFn, str, exp, isNativeCompare)
 		str.WriteString(SPACE)
 		gen.wrapToFloat(node.Right, nsFn, str, exp, isNativeCompare)
+		str.WriteString(")")
+	}
+	if isNot {
 		str.WriteString(")")
 	}
 }

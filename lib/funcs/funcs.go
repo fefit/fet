@@ -110,6 +110,7 @@ func Helpers() template.FuncMap {
 		}
 		return b
 	})
+	helpers["empty"] = empty
 	return helpers
 }
 
@@ -396,4 +397,46 @@ func concat(str string, args ...interface{}) string {
 		}
 	}
 	return builder.String()
+}
+
+func empty(target interface{}, args ...interface{}) bool {
+	if target == nil {
+		return false
+	}
+	switch t := target.(type) {
+	case int, float64, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float32:
+		return t == 0
+	case string:
+		return t == ""
+	case bool:
+		return t == false
+	}
+	v := reflect.ValueOf(target)
+	kind := v.Kind()
+	argsNum := len(args)
+	if kind == reflect.Map {
+		if argsNum > 0 {
+			firstArg := args[0]
+			fmt.Println(reflect.ValueOf(firstArg).Type() == v.Type())
+			// if obj, ok := target.(map[string]interface{}); ok {
+			// 	if key, ok := firstArg.(string); ok {
+			// 		if last, ok := obj[key]; ok {
+			// 			return empty(last, args[1:]...)
+			// 		}
+			// 	}
+			// 	return false
+			// }
+			// if obj, ok := target.(map[int]interface{}); ok {
+			// 	if key, ok := firstArg.(int); ok {
+			// 		if last, ok := obj[key]; ok {
+			// 			return empty(last, args[1:]...)
+			// 		}
+			// 	}
+			// 	return false
+			// }
+			// return false
+		}
+		return true
+	}
+	return false
 }
