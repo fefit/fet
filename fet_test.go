@@ -1,6 +1,7 @@
 package fet
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/fefit/fet/types"
@@ -39,9 +40,18 @@ func TestCompile(t *testing.T) {
 		assert.Equal(t, output, result)
 	}
 	//
+	helloFet := "hello fet!"
+	helloFetChars := strings.Split(helloFet, "")
 	t.Run("Test Smarty mode compile", func(t *testing.T) {
-		assertOutputToBe(t, "hello.tpl", nil, "hello fet!")
-		assertOutputToBe(t, "variable.tpl", nil, "hello fet!")
-		assertOutputToBe(t, "strvar.tpl", nil, "hello fet!")
+		assertOutputToBe(t, "hello.tpl", nil, helloFet)
+		assertOutputToBe(t, "variable.tpl", nil, helloFet)
+		assertOutputToBe(t, "strvar.tpl", nil, helloFet)
+		assertOutputToBe(t, "keywordvar.tpl", nil, helloFet)
+		assertOutputToBe(t, "foreach.tpl", map[string][]string{
+			"Result": helloFetChars,
+		}, helloFet)
+		assertOutputToBe(t, "for.tpl", map[string][]string{
+			"Result": helloFetChars,
+		}, helloFet)
 	})
 }

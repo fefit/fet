@@ -1,0 +1,1 @@
+{%for $i=0, $j = count($result); $i < $j; $i++%}{%$result[$i]%}{%/for%}

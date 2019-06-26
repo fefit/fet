@@ -84,7 +84,7 @@ it's more like the php template engineer smarty.
   `+ - * / % ! ** == >= <= != && || & ^`
 
 2. keyword operators  
-  `and` && `or` || `not` ! `eq` == `ne` != `gt` < `ge` <= `lt` > `le` >=  
+  `and` && `or` || `not` ! `eq` == `ne` != `gt` > `ge` >= `lt` < `le` <=  
   `bitor` for "|"
 
 3. pipe   

@@ -1,0 +1,1 @@
+{%foreach $result as $item%}{%$item%}{%/foreach%}

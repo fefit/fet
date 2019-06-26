@@ -28,6 +28,7 @@ const (
 	// SPACE CONSTANT
 	SPACE     = " "
 	toFloatFn = "INJECT_TO_FLOAT"
+	indexFn   = "INJECT_INDEX"
 	concatFn  = "concat"
 )
 
@@ -120,7 +121,7 @@ func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, str *stri
 			str.WriteString(name)
 		} else {
 			if fieldType != FuncName {
-				str.WriteString(".")
+				str.WriteString("$.")
 				if conf.Ucfirst {
 					name = strings.Title(name)
 				}
@@ -181,7 +182,7 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 		args := node.Arguments
 		total := len(args)
 		if !noObjectIndex {
-			str.WriteString("(index ")
+			str.WriteString("(" + indexFn + " ")
 		}
 		root := node.Root
 		isParsed := false

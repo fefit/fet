@@ -83,6 +83,7 @@ func Inject() template.FuncMap {
 		loopChan.init()
 		return loopChan, nil
 	}
+	injects["INJECT_INDEX"] = index
 	return injects
 }
 
@@ -111,6 +112,7 @@ func Helpers() template.FuncMap {
 		return b
 	})
 	helpers["empty"] = empty
+	helpers["count"] = count
 	return helpers
 }
 
@@ -399,44 +401,123 @@ func concat(str string, args ...interface{}) string {
 	return builder.String()
 }
 
-func empty(target interface{}, args ...interface{}) bool {
+func chainObject(target interface{}, args ...interface{}) (bool, interface{}, error) {
+	argsNum := len(args)
+	fmt.Println("调用chainobject")
 	if target == nil {
+		if argsNum > 0 {
+			return false, nil, fmt.Errorf("can not get field of nil")
+		}
+		return true, nil, nil
+	}
+	if argsNum == 0 {
+		return true, target, nil
+	}
+	firstArg := args[0]
+	nextArgs := args[1:]
+	v := reflect.ValueOf(target)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	kind := v.Kind()
+	isIntKey := func(kind reflect.Kind) bool {
+		switch kind {
+		case reflect.Int, reflect.Int64, reflect.Int8, reflect.Int16, reflect.Int32:
+			return true
+		}
 		return false
 	}
-	switch t := target.(type) {
-	case int, float64, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float32:
-		return t == 0
+	getIntKey := func(key interface{}) (int64, error) {
+		switch key := key.(type) {
+		case int, float64, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32:
+			return toInt(key)
+		}
+		return 0, fmt.Errorf("it's not an integer type")
+	}
+	if kind == reflect.Struct {
+		if key, ok := firstArg.(string); ok {
+			return chainObject(v.FieldByName(key).Interface(), nextArgs...)
+		}
+		return false, nil, fmt.Errorf("the struct field must be string type")
+	} else if kind == reflect.Map {
+		mapKeyType := v.Type().Key().Kind()
+		mapKeys := v.MapKeys()
+		if mapKeyType == reflect.String {
+			if key, ok := firstArg.(string); ok {
+				for _, mv := range mapKeys {
+					if name, ok := mv.Interface().(string); ok && name == key {
+						target = v.MapIndex(mv).Interface()
+						return chainObject(target, nextArgs...)
+					}
+				}
+			}
+		} else if isIntKey(mapKeyType) {
+			if index, err := getIntKey(firstArg); err == nil {
+				for _, mv := range mapKeys {
+					if index == mv.Int() {
+						target = v.MapIndex(mv).Interface()
+						return chainObject(target, nextArgs...)
+					}
+				}
+			}
+		}
+		return false, nil, fmt.Errorf("the map does not has key %v", firstArg)
+	} else if kind == reflect.Slice || kind == reflect.Array {
+
+		if index, err := getIntKey(firstArg); err == nil {
+			idx := int(index)
+			if idx >= 0 && idx < v.Len() {
+				return chainObject(v.Index(idx).Interface(), nextArgs...)
+			}
+		}
+	}
+	return false, nil, fmt.Errorf("unsupport type")
+}
+
+func index(target interface{}, args ...interface{}) interface{} {
+	flag, value, err := chainObject(target, args...)
+	if err != nil || !flag {
+		return nil
+	}
+	return value
+}
+
+func empty(target interface{}, args ...interface{}) bool {
+	flag, value, err := chainObject(target, args...)
+	if err != nil || !flag {
+		return true
+	}
+	switch v := value.(type) {
 	case string:
-		return t == ""
+		return v == "" || v == "0"
+	case int, float64, uint, int64, int32, int16, int8, uint64, uint32, uint16, uint8, float32:
+		return v == 0
 	case bool:
-		return t == false
+		return v == false
+	}
+	v := reflect.ValueOf(value)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	switch v.Kind() {
+	case reflect.Slice, reflect.Array, reflect.Map:
+		return v.Len() == 0
+	}
+	return false
+}
+
+func count(target interface{}, args ...interface{}) int {
+	if len(args) > 0 {
+		panic("the 'count' function can only have one param")
 	}
 	v := reflect.ValueOf(target)
 	kind := v.Kind()
-	argsNum := len(args)
-	if kind == reflect.Map {
-		if argsNum > 0 {
-			firstArg := args[0]
-			fmt.Println(reflect.ValueOf(firstArg).Type() == v.Type())
-			// if obj, ok := target.(map[string]interface{}); ok {
-			// 	if key, ok := firstArg.(string); ok {
-			// 		if last, ok := obj[key]; ok {
-			// 			return empty(last, args[1:]...)
-			// 		}
-			// 	}
-			// 	return false
-			// }
-			// if obj, ok := target.(map[int]interface{}); ok {
-			// 	if key, ok := firstArg.(int); ok {
-			// 		if last, ok := obj[key]; ok {
-			// 			return empty(last, args[1:]...)
-			// 		}
-			// 	}
-			// 	return false
-			// }
-			// return false
-		}
-		return true
+	if kind == reflect.Ptr {
+		v = v.Elem()
+		kind = v.Kind()
 	}
-	return false
+	if kind == reflect.Map || kind == reflect.Slice || kind == reflect.Array || kind == reflect.String {
+		return v.Len()
+	}
+	panic("the 'count' function can only used in types 'map,array,slice,string' ")
 }
