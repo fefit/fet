@@ -93,12 +93,11 @@ func Helpers() template.FuncMap {
 	helpers["safe"] = safe
 	helpers["ceil"] = ceil
 	helpers["floor"] = floor
-	helpers["number_format"] = number_format
+	helpers["number_format"] = numberFormat
 	helpers["truncate"] = truncate
 	helpers["mrange"] = makeRange
 	helpers["concat"] = concat
 	helpers["json_encode"] = jsonEncode
-	helpers["concat"] = concat
 	helpers["min"] = generateFloatFunc(func(a, b float64) float64 {
 		if a > b {
 			return b
@@ -247,8 +246,8 @@ func floor(num float64) float64 {
 	return math.Floor(num)
 }
 
-func number_format(args ...interface{}) string {
-	decimals, dot, thousands_sep := 0, ".", ","
+func numberFormat(args ...interface{}) string {
+	decimals, dot, thousandsSep := 0, ".", ","
 	argsNum := len(args)
 	if argsNum == 0 {
 		panic("wrong arguments")
@@ -275,7 +274,7 @@ func number_format(args ...interface{}) string {
 	}
 	if argsNum > 3 {
 		if ts, ok := args[3].(string); ok {
-			thousands_sep = ts
+			thousandsSep = ts
 		}
 	}
 	numstr := strconv.FormatFloat(num, 'f', -1, 64)
@@ -294,7 +293,7 @@ func number_format(args ...interface{}) string {
 		modNum = 2
 	}
 	result := []rune{}
-	sep := []rune(thousands_sep)
+	sep := []rune(thousandsSep)
 	for i := 0; i < total-1; i++ {
 		result = append(result, pres[i])
 		if i%3 == modNum {
@@ -401,9 +400,8 @@ func concat(str string, args ...interface{}) string {
 	return builder.String()
 }
 
-func chainObject(target interface{}, args ...interface{}) (bool, interface{}, error) {
+func chainObject(target interface{}, args ...interface{}) (finded bool, value interface{}, err error) {
 	argsNum := len(args)
-	fmt.Println("调用chainobject")
 	if target == nil {
 		if argsNum > 0 {
 			return false, nil, fmt.Errorf("can not get field of nil")
@@ -463,7 +461,6 @@ func chainObject(target interface{}, args ...interface{}) (bool, interface{}, er
 		}
 		return false, nil, fmt.Errorf("the map does not has key %v", firstArg)
 	} else if kind == reflect.Slice || kind == reflect.Array {
-
 		if index, err := getIntKey(firstArg); err == nil {
 			idx := int(index)
 			if idx >= 0 && idx < v.Len() {
@@ -475,16 +472,16 @@ func chainObject(target interface{}, args ...interface{}) (bool, interface{}, er
 }
 
 func index(target interface{}, args ...interface{}) interface{} {
-	flag, value, err := chainObject(target, args...)
-	if err != nil || !flag {
+	finded, value, err := chainObject(target, args...)
+	if err != nil || !finded {
 		return nil
 	}
 	return value
 }
 
 func empty(target interface{}, args ...interface{}) bool {
-	flag, value, err := chainObject(target, args...)
-	if err != nil || !flag {
+	finded, value, err := chainObject(target, args...)
+	if err != nil || !finded {
 		return true
 	}
 	switch v := value.(type) {
@@ -494,6 +491,8 @@ func empty(target interface{}, args ...interface{}) bool {
 		return v == 0
 	case bool:
 		return v == false
+	case nil:
+		return true
 	}
 	v := reflect.ValueOf(value)
 	if v.Kind() == reflect.Ptr {

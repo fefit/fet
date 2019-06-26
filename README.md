@@ -106,8 +106,21 @@ it's more like the php template engineer smarty.
   使用 ` `` `符号来包裹变量或者表达式来达到拼接字符串的目的，`+`号仅用作数字类型的加法运算，请勿使用。
 
 ### [内置的函数]Func Maps  
+  - Math  
+    `min`   `max` `floor` `ceil`
+  
+  - Helpers  
+    `number_format` `truncate`
+  
+  - Assert  
+    `empty`
 
-  [view func.go](./lib/funcs/funcs.go)
+  - Length  
+    `count`
+  
+  - Output  
+    `safe`  
+  - [view more in func.go](./lib/funcs/funcs.go)
   
 ### [渲染模式]Config types.Mode  
   - types.Smarty  
@@ -174,9 +187,9 @@ func main(){
 ## [如何在项目中使用]Use in project
 
 1. [仅编译模式] `compile mode`  
-    just use fet compile your template files offline, and add the FuncMap `lib/funcs/func.go` to `html/template` struct.
+    just use fet compile your template files offline, and add the FuncMap `lib/funcs/funcs.go` to `html/template` struct.
 
-    在项目中，使用fet的方式来编写模板，然后将编写好的模板编译到项目中，引入`lib/funcs/func.go`里写好的通用方法，由go后端同学注册进去，走线下编译模式。
+    在项目中，使用fet的方式来编写模板，然后将编写好的模板编译到项目中，引入`lib/funcs/funcs.go`里写好的通用方法，由go后端同学注册进去，走线下编译模式。
 
 2. [安装模式] `install mode`  
 

@@ -68,3 +68,31 @@ func TestIndex(t *testing.T) {
 	assert.Equal(t, index(&a, 1, "Max"), 100)
 	assert.Empty(t, index(a, "Name"))
 }
+
+func TestEmpty(t *testing.T) {
+	p := struct {
+		Name     string
+		Nickname string
+		Score    struct {
+			Min int
+			Max int
+		}
+	}{
+		"hello fet!", "", struct {
+			Min int
+			Max int
+		}{0, 100},
+	}
+	assert.Equal(t, true, empty(nil))
+	assert.Equal(t, true, empty(""))
+	assert.Equal(t, true, empty("0"))
+	assert.Equal(t, false, empty(" "))
+	assert.Equal(t, true, empty(false))
+	assert.Equal(t, false, empty(true))
+	assert.Equal(t, true, empty([]string{}))
+	assert.Equal(t, false, empty([2]string{}))
+	assert.Equal(t, true, empty(map[string]string{}))
+	assert.Equal(t, false, empty(p, "Name"))
+	assert.Equal(t, true, empty(p, "Score", "Min"))
+	assert.Equal(t, true, empty(p, "Nickname"))
+}
