@@ -515,8 +515,11 @@ func count(target interface{}, args ...interface{}) int {
 		v = v.Elem()
 		kind = v.Kind()
 	}
-	if kind == reflect.Map || kind == reflect.Slice || kind == reflect.Array || kind == reflect.String {
+	if kind == reflect.Map || kind == reflect.Slice || kind == reflect.Array {
 		return v.Len()
+	} else if kind == reflect.String {
+		vi := v.String()
+		return len([]rune(vi))
 	}
 	panic("the 'count' function can only used in types 'map,array,slice,string' ")
 }
