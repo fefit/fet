@@ -9,6 +9,19 @@ type Indexs struct {
 	EndIndex   int
 }
 
+// FetConfig struct
+type FetConfig struct {
+	LeftDelimiter  string
+	RightDelimiter string
+	CommentSymbol  string
+	TemplateDir    string
+	CompileDir     string
+	LowerField     bool
+	CompileOnline  bool
+	Ignores        []string
+	Mode           Mode
+}
+
 // Mode of parse type
 type Mode int
 

@@ -39,18 +39,8 @@ type ValidateFn func(node *Node, conf *Config) string
 // Mode for parser type
 type Mode = types.Mode
 
-// Config struct
-type Config struct {
-	LeftDelimiter  string
-	RightDelimiter string
-	CommentSymbol  string
-	TemplateDir    string
-	CompileDir     string
-	LowerField     bool
-	CompileOnline  bool
-	Ignores        []string
-	Mode           Mode
-}
+// Config for FetConfig
+type Config = types.FetConfig
 
 // Params struct
 type Params struct {
@@ -95,9 +85,11 @@ type CompileOptions struct {
 	ParentScopes []string
 	ParentNS     string
 	LocalScopes  *[]string
-	LocalNS      string
 	Includes     *[]string
 	Extends      *[]string
+	Captures     *map[string]string
+	LocalNS      string
+	ParseOptions *generator.ParseOptions
 }
 
 // Node struct
@@ -153,6 +145,7 @@ var (
 		"elseif":  BlockFeatureType,
 		"else":    BlockFeatureType,
 		"block":   BlockStartType,
+		"capture": BlockStartType,
 	}
 	validateFns = map[string]ValidateFn{
 		"if":      validIfTag,
@@ -163,6 +156,7 @@ var (
 		"block":   validBlockTag,
 		"include": validIncludeTag,
 		"extends": validExtendsTag,
+		"capture": validCaptureTag,
 	}
 )
 
@@ -191,7 +185,8 @@ func (node *Node) AddFeature(feature *Node) {
 func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	fet := node.Fet
 	exp, gen, conf, delimit := fet.exp, fet.gen, fet.Config, fet.wrapCode
-	includes, extends := options.Includes, options.Extends
+	includes, extends, captures := options.Includes, options.Extends, options.Captures
+	parseOptions := options.ParseOptions
 	name, content := node.Name, node.Content
 	parentScopes, localScopes := options.ParentScopes, options.LocalScopes
 	parentNS, localNS := options.ParentNS, options.LocalNS
@@ -208,10 +203,11 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 		} else if contains(parentScopes, name) {
 			return true, addVarPrefix + name + parentNS
 		}
-		if isSmartyMode {
-			return false, strings.TrimLeft(name, "$")
-		}
-		return false, name
+		return false, strings.TrimPrefix(name, "$")
+	}
+	genOptions := &generator.GenOptions{
+		NsFn: namespace,
+		Exp:  exp,
 	}
 	toError := func(err error) error {
 		return node.halt(err.Error())
@@ -240,9 +236,9 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 					err = node.halt("syntax error: can not set literal '%s' as a variable name", name)
 					break
 				}
-				result = delimit(addVarPrefix + name + localNS + " := " + gen.Build(ast, namespace, exp))
+				result = delimit(addVarPrefix + name + localNS + " := " + gen.Build(ast, genOptions, parseOptions))
 			} else {
-				result = delimit(gen.Build(ast, namespace, exp))
+				result = delimit(gen.Build(ast, genOptions, parseOptions))
 			}
 		}
 	case SingleType:
@@ -254,6 +250,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			if contains(*includes, tpl) || contains(*extends, tpl) {
 				err = node.halt("the include file '%s' has a loop dependence", tpl)
 			} else {
+				incCaptures := &map[string]string{}
 				incOptions := &CompileOptions{
 					ParentNS:     localNS,
 					LocalNS:      "_" + curNS,
@@ -261,6 +258,11 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 					LocalScopes:  &[]string{},
 					Extends:      extends,
 					Includes:     includes,
+					Captures:     incCaptures,
+					ParseOptions: &generator.ParseOptions{
+						Conf:     conf,
+						Captures: incCaptures,
+					},
 				}
 				if incResult, incErr := fet.compileFileContent(tpl, incOptions); incErr != nil {
 					err = toError(incErr)
@@ -281,7 +283,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				if expErr != nil {
 					err = toError(expErr)
 				} else {
-					code := gen.Build(ast, namespace, exp)
+					code := gen.Build(ast, genOptions, parseOptions)
 					key := props["key"].Raw
 					result = "range "
 					if key != "" {
@@ -303,7 +305,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 						err = toError(expErr)
 						break
 					}
-					res.WriteString(delimit(addVarPrefix + name + localNS + ":=" + gen.Build(ast, namespace, exp)))
+					res.WriteString(delimit(addVarPrefix + name + localNS + ":=" + gen.Build(ast, genOptions, parseOptions)))
 				}
 				suffixNS := indexString(node.StartIndex) + "_" + indexString(node.EndIndex) + localNS
 				chanName := "$loop_" + suffixNS
@@ -317,7 +319,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				if expErr != nil {
 					err = toError(expErr)
 				} else {
-					res.WriteString(delimit("if " + gen.Build(ast, namespace, exp)))
+					res.WriteString(delimit("if " + gen.Build(ast, genOptions, parseOptions)))
 					res.WriteString(delimit(chanName + ".Next"))
 					res.WriteString(delimit("else"))
 					res.WriteString(delimit(chanName + ".Close"))
@@ -331,8 +333,25 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			if expErr != nil {
 				err = toError(expErr)
 			} else {
-				code := gen.Build(ast, namespace, exp)
+				code := gen.Build(ast, genOptions, parseOptions)
 				result = delimit("if " + code)
+			}
+		} else if name == "capture" {
+			parseOptions.IsInCapture = true
+			keyName := "$fet.capture." + content
+			if _, ok := (*captures)[keyName]; ok {
+				// capture name has exists
+				err = node.halt("repeated capture name '" + content + "'")
+			} else {
+				capVar := "$fet_capture_" + content + localNS
+				result = "{{" + capVar + " := (INJECT_CAPTURE_SCOPE . "
+				for _, varName := range currentScopes {
+					varName = strings.TrimPrefix(varName, "$")
+					result += "\"" + strings.Title(varName) + "\" $" + varName
+				}
+				result += ")}}"
+				(*captures)[keyName] = capVar
+				result += "{{ define \"" + content + "\"}}"
 			}
 		}
 	case BlockFeatureType:
@@ -341,7 +360,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			if expErr != nil {
 				err = toError(expErr)
 			} else {
-				code := gen.Build(ast, namespace, exp)
+				code := gen.Build(ast, genOptions, parseOptions)
 				result = delimit("else if " + code)
 			}
 		} else if name == "else" {
@@ -367,13 +386,13 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 						err = toError(expErr)
 						break
 					}
-					code := gen.Build(ast, namespace, exp)
+					code := gen.Build(ast, genOptions, parseOptions)
 					ast, expErr = exp.Parse(loops[i+1])
 					if expErr != nil {
 						err = toError(expErr)
 						break
 					}
-					code += " = " + gen.Build(ast, namespace, exp)
+					code += " = " + gen.Build(ast, genOptions, parseOptions)
 					result += delimit(code)
 					i += 2
 				}
@@ -385,6 +404,9 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				result = delimit("end")
 			}
 		} else {
+			if name == "capture" {
+				parseOptions.IsInCapture = false
+			}
 			result = delimit("end")
 		}
 	default:
@@ -485,6 +507,17 @@ func validBlockTag(node *Node, conf *Config) (errmsg string) {
 	}
 	return
 }
+
+func validCaptureTag(node *Node, conf *Config) (errmsg string) {
+	capture := node.Parent
+	if capture != nil && capture.Parent != nil {
+		errmsg = "the \"capture\" tag should be root tag,can not appears in \"" + capture.Parent.Name + "\""
+	} else {
+		errmsg = validIfOnlyOneStrParam(node)
+	}
+	return
+}
+
 func validForTag(node *Node, conf *Config) (errmsg string) {
 	name := node.Name
 	content := node.Content
@@ -1574,13 +1607,20 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, error) {
 	localScopes := []string{}
 	includes := []string{}
 	extends := []string{}
+	captures := map[string]string{}
 	tplFile := fet.getRealTplPath(tpl, fet.templateDir)
 	compileFile := fet.getRealTplPath(tpl, fet.compileDir)
+	parseOptions := &generator.ParseOptions{
+		Conf:     fet.Config,
+		Captures: &captures,
+	}
 	options := &CompileOptions{
 		ParentScopes: parentScopes,
 		LocalScopes:  &localScopes,
 		Includes:     &includes,
 		Extends:      &extends,
+		Captures:     &captures,
+		ParseOptions: parseOptions,
 	}
 	if writeFile {
 		defer func() {

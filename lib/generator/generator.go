@@ -17,6 +17,21 @@ type GenConf struct {
 	Ucfirst bool
 }
 
+// GenOptions for generator
+type GenOptions struct {
+	Exp  *e.Expression
+	NsFn t.NamespaceFn
+	Str  *strings.Builder
+}
+
+// ParseOptions for generator
+type ParseOptions struct {
+	NoObjectIndex bool
+	Conf          *t.FetConfig
+	IsInCapture   bool
+	Captures      *map[string]string
+}
+
 // Generator for parse code
 type Generator struct {
 	Conf *GenConf
@@ -76,20 +91,22 @@ var (
 )
 
 // Build for code
-func (gen *Generator) Build(node *Node, nsFn t.NamespaceFn, exp *e.Expression) string {
+func (gen *Generator) Build(node *Node, options *GenOptions, parseOptions *ParseOptions) string {
 	// conf := gen.Conf
 	var str strings.Builder
-	gen.parseRecursive(node, nsFn, &str, exp, false)
+	options.Str = &str
+	gen.parseRecursive(node, options, parseOptions)
 	return str.String()
 }
 
-func (gen *Generator) wrapToFloat(node *Node, nsFn t.NamespaceFn, str *strings.Builder, exp *e.Expression, isNative bool) {
+func (gen *Generator) wrapToFloat(node *Node, options *GenOptions, parseOptions *ParseOptions, isNative bool) {
+	str := options.Str
 	if isNative {
 		str.WriteString("(")
 		str.WriteString(toFloatFn)
 		str.WriteString(SPACE)
 	}
-	gen.parseRecursive(node, nsFn, str, exp, false)
+	gen.parseRecursive(node, options, parseOptions)
 	if isNative {
 		str.WriteString(")")
 	}
@@ -107,8 +124,10 @@ const (
 )
 
 // parse identifier
-func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, str *strings.Builder, fieldType FieldType) {
+func (gen *Generator) parseIdentifier(options *GenOptions, parseOptions *ParseOptions, name string, fieldType FieldType) {
+	nsFn, str := options.NsFn, options.Str
 	conf := gen.Conf
+	isInCapture := parseOptions.IsInCapture
 	if val, ok := LiteralSymbols[name]; ok {
 		if fieldType != ExpName {
 			panic(fmt.Sprint("syntax error: unexpect token ", name))
@@ -118,10 +137,19 @@ func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, str *stri
 	} else {
 		isVar, name := nsFn(name)
 		if isVar {
-			str.WriteString(name)
+			if isInCapture {
+				str.WriteString("$.Variables.")
+				varName := strings.TrimPrefix(name, "$")
+				str.WriteString(strings.Title(varName))
+			} else {
+				str.WriteString(name)
+			}
 		} else {
 			if fieldType != FuncName {
 				str.WriteString("$.")
+				if isInCapture {
+					str.WriteString("Data.")
+				}
 				if conf.Ucfirst {
 					name = strings.Title(name)
 				}
@@ -131,7 +159,9 @@ func (gen *Generator) parseIdentifier(name string, nsFn t.NamespaceFn, str *stri
 	}
 }
 
-func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *strings.Builder, exp *e.Expression, noObjectIndex bool) {
+func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptions *ParseOptions) {
+	str, exp := options.Str, options.Exp
+	noObjectIndex, parseConf, captures := parseOptions.NoObjectIndex, parseOptions.Conf, parseOptions.Captures
 	curType := node.Type
 	conf := gen.Conf
 	isNot := node.Operator == "!"
@@ -157,7 +187,7 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 					}
 					express := string(runes[pos.StartIndex+1 : pos.EndIndex-1])
 					ast, _ := exp.Parse(express)
-					str.WriteString(gen.Build(ast, nsFn, exp))
+					str.WriteString(gen.Build(ast, options, parseOptions))
 					i = pos.EndIndex + 1
 					if i >= total {
 						break
@@ -176,63 +206,132 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 		case *e.IdentifierToken:
 			stat := t.Stat
 			name := string(stat.Values)
-			gen.parseIdentifier(name, nsFn, str, ExpName)
+			gen.parseIdentifier(options, parseOptions, name, ExpName)
 		}
 	} else if curType == "object" {
 		args := node.Arguments
 		total := len(args)
-		if !noObjectIndex {
-			str.WriteString("(" + indexFn + " ")
-		}
 		root := node.Root
 		isParsed := false
+		isStatic := false
+		addIndexFn := func() {
+			if !noObjectIndex {
+				str.WriteString("(" + indexFn + " ")
+			}
+		}
 		if root.Type == "raw" {
 			if t, ok := root.Token.(*e.IdentifierToken); ok {
-				gen.parseIdentifier(string(t.Stat.Values), nsFn, str, ObjectRoot)
-				isParsed = true
+				rootName := string(t.Stat.Values)
+				if rootName == "$fet" {
+					isStatic = true
+					isParsed = true
+					isStaticOk := true
+					names := []string{}
+					for i := 0; i < total; i++ {
+						cur := args[i]
+						isIdent := false
+						if cur.Type == "raw" {
+							if t, ok := cur.Token.(*e.IdentifierToken); ok {
+								isIdent = true
+								names = append(names, string(t.Stat.Values))
+							}
+						}
+						if !isIdent {
+							isStaticOk = false
+							break
+						}
+					}
+					if isStaticOk {
+						count := len(names)
+						if count == 1 {
+							switch names[0] {
+							case "now":
+								str.WriteString("now")
+							default:
+								panic("unsupport static variable $fet." + names[0])
+							}
+						} else if count == 2 {
+							first, second := names[0], names[1]
+							if first == "config" {
+								switch second {
+								case "leftDelimiter":
+									str.WriteString("\"" + parseConf.LeftDelimiter + "\"")
+								case "rightDelimiter":
+									str.WriteString("\"" + parseConf.RightDelimiter + "\"")
+								case "compileDir":
+									str.WriteString("\"" + parseConf.CompileDir + "\"")
+								case "templateDir":
+									str.WriteString("\"" + parseConf.TemplateDir + "\"")
+								default:
+									isStaticOk = false
+								}
+							} else if first == "capture" {
+								keyName := "$fet.capture." + second
+								if variable, ok := (*captures)[keyName]; ok {
+									str.WriteString("template \"" + second + "\" " + variable)
+								} else {
+									panic("unfined capture:" + keyName)
+								}
+							} else {
+								panic("wrong static variable $fet." + first + "." + second)
+							}
+						} else {
+							panic("unexpected static variable $fet")
+						}
+					}
+				} else {
+					addIndexFn()
+					gen.parseIdentifier(options, parseOptions, string(t.Stat.Values), ObjectRoot)
+					isParsed = true
+				}
 			}
 		}
 		if !isParsed {
-			gen.parseRecursive(root, nsFn, str, exp, noObjectIndex)
+			addIndexFn()
+			gen.parseRecursive(root, options, parseOptions)
 		}
-		str.WriteString(SPACE)
-		for i := 0; i < total; i++ {
-			cur := args[i]
-			curType := cur.Type
+		if !isStatic {
 			str.WriteString(SPACE)
-			if curType == "raw" {
-				token := cur.Token
-				if t, ok := token.(*e.StringToken); ok {
-					prop := string(t.Stat.Values)
-					if conf.Ucfirst {
-						str.WriteString(strings.Title(prop))
-					} else {
-						str.WriteString(prop)
-					}
-				} else if t, ok := token.(*e.NumberToken); ok {
-					index := t.ToNumber()
-					str.WriteString(strconv.FormatInt(int64(index), 10))
-				} else if t, ok := token.(*e.IdentifierToken); ok {
-					ident := string(t.Stat.Values)
-					if cur.Operator == "." {
+			for i := 0; i < total; i++ {
+				cur := args[i]
+				curType := cur.Type
+				str.WriteString(SPACE)
+				if curType == "raw" {
+					token := cur.Token
+					if t, ok := token.(*e.StringToken); ok {
+						prop := string(t.Stat.Values)
 						if conf.Ucfirst {
-							ident = strings.Title(ident)
+							str.WriteString(strings.Title(prop))
+						} else {
+							str.WriteString(prop)
 						}
-						str.WriteString("\"")
-						str.WriteString(ident)
-						str.WriteString("\"")
+					} else if t, ok := token.(*e.NumberToken); ok {
+						index := t.ToNumber()
+						str.WriteString(strconv.FormatInt(int64(index), 10))
+					} else if t, ok := token.(*e.IdentifierToken); ok {
+						ident := string(t.Stat.Values)
+						if cur.Operator == "." {
+							if conf.Ucfirst {
+								ident = strings.Title(ident)
+							}
+							str.WriteString("\"")
+							str.WriteString(ident)
+							str.WriteString("\"")
+						} else {
+							gen.parseIdentifier(options, parseOptions, ident, ObjectField)
+						}
 					} else {
-						gen.parseIdentifier(ident, nsFn, str, ObjectField)
+						gen.parseRecursive(cur, options, parseOptions)
 					}
 				} else {
-					gen.parseRecursive(cur, nsFn, str, exp, noObjectIndex)
+					gen.parseRecursive(cur, options, parseOptions)
 				}
-			} else {
-				gen.parseRecursive(cur, nsFn, str, exp, noObjectIndex)
 			}
 		}
-		if !noObjectIndex {
+		if !noObjectIndex && !isStatic {
 			str.WriteString(")")
+		} else {
+			parseOptions.NoObjectIndex = false
 		}
 	} else if curType == "function" {
 		root := node.Root
@@ -242,22 +341,22 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 		if root.Type == "raw" {
 			if t, ok := root.Token.(*e.IdentifierToken); ok {
 				name := string(t.Stat.Values)
-				gen.parseIdentifier(name, nsFn, str, FuncName)
+				gen.parseIdentifier(options, parseOptions, name, FuncName)
 				if _, ok := NoNeedIndexFuncs[name]; ok {
-					noObjectIndex = true
+					parseOptions.NoObjectIndex = true
 				}
 				isParsed = true
 			}
 		}
 		if !isParsed {
-			gen.parseRecursive(root, nsFn, str, exp, noObjectIndex)
+			gen.parseRecursive(root, options, parseOptions)
 		}
 		str.WriteString(SPACE)
 		for i, total := 0, len(args); i < total; i++ {
 			if i > 0 {
 				str.WriteString(SPACE)
 			}
-			gen.parseRecursive(args[i], nsFn, str, exp, noObjectIndex)
+			gen.parseRecursive(args[i], options, parseOptions)
 		}
 		str.WriteString(")")
 	} else {
@@ -271,9 +370,9 @@ func (gen *Generator) parseRecursive(node *Node, nsFn t.NamespaceFn, str *string
 			str.WriteString(name)
 			str.WriteString(SPACE)
 		}
-		gen.wrapToFloat(node.Left, nsFn, str, exp, isNativeCompare)
+		gen.wrapToFloat(node.Left, options, parseOptions, isNativeCompare)
 		str.WriteString(SPACE)
-		gen.wrapToFloat(node.Right, nsFn, str, exp, isNativeCompare)
+		gen.wrapToFloat(node.Right, options, parseOptions, isNativeCompare)
 		str.WriteString(")")
 	}
 	if isNot {

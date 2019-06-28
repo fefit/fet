@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type OperatorFloatFn func(float64, float64) float64
@@ -19,6 +20,10 @@ type JSON map[string]interface{}
 type LoopChan struct {
 	Chan chan int
 	Loop int
+}
+type CaptureData struct {
+	Variables map[string]interface{}
+	Data      interface{}
 }
 
 func (lc *LoopChan) init() {
@@ -84,6 +89,7 @@ func Inject() template.FuncMap {
 		return loopChan, nil
 	}
 	injects["INJECT_INDEX"] = index
+	injects["INJECT_CAPTURE_SCOPE"] = capture
 	return injects
 }
 
@@ -112,6 +118,7 @@ func Helpers() template.FuncMap {
 	})
 	helpers["empty"] = empty
 	helpers["count"] = count
+	helpers["now"] = now
 	return helpers
 }
 
@@ -356,6 +363,35 @@ func makeRange(start, end float64, args ...interface{}) []float64 {
 		result = append(result, end)
 	}
 	return result
+}
+
+func capture(data interface{}, variables ...interface{}) CaptureData {
+	result := CaptureData{
+		Data: data,
+	}
+	vars := map[string]interface{}{}
+	count := len(variables)
+	if count > 0 && count%2 == 0 {
+		for i := 0; i < count; {
+			key := variables[i]
+			value := variables[i+1]
+			if t, ok := key.(string); ok {
+				vars[t] = value
+			}
+			i += 2
+		}
+	}
+	result.Variables = vars
+	return result
+}
+
+func dateFormat() {
+
+}
+
+func now() int64 {
+	t := time.Now()
+	return t.Unix()
 }
 
 func stringify(target interface{}) template.HTML {

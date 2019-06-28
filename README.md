@@ -78,6 +78,21 @@ it's more like the php template engineer smarty.
   
   `{%$title = "this is a title"%}`
 
+- [捕获]capture  
+  
+  `{%capture "hello"%}`  
+  `{%/capture%}`  
+  `{%$fet.capture.hello%}`
+
+- [静态变量]static variables  
+
+  `{%$fet.capture.xxx%}`
+  `{%$fet.config.leftDelimiter%}`
+  `{%$fet.config.rightDelimiter%}`
+  `{%$fet.config.templateDir%}`
+  `{%$fet.config.compileDir%}`
+  `{%$fet.now%}`
+
 ### [表达式支持]Expression
   
 1. operators    
