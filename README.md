@@ -9,7 +9,11 @@ FET means Friendly, Easily for Templating.`html/template` has a basic support fo
 - Use `extends` inherit base template with defined variables scopes
 - Extends support for `for` loop, e.g
 
+## Document
+  
+[Document](https://github.com/fefit/fet/wiki/Wiki)    
 
+[中文文档](https://github.com/fefit/fet/wiki/%E4%B8%AD%E6%96%87%E6%96%87%E6%A1%A3)
 
 ## Usage
 
@@ -31,7 +35,7 @@ it's more like the php template engineer smarty.
 
 - include
 
-  ```
+  ```php
   {%include "header.html"%}
   ```
 
@@ -70,15 +74,21 @@ it's more like the php template engineer smarty.
 
 - output
   
-  `{%$item.url%}`
+  ```php
+  {%$item.url%}
+  ```
 
 - pipe funcs
 
-  `{%$item.title|truncate:30%}`
+  ```php
+  {%$item.title|truncate:30%}
+  ```
 
 - variable define
   
-  `{%$title = "this is a title"%}`
+  ```php
+  {%$title = "this is a title"%}
+  ```
 
 - capture  
   
@@ -119,7 +129,7 @@ it's more like the php template engineer smarty.
   scientific notation `1e10`
 
 ### Characters concat  
-  ```go
+  ```php
   {% $sayHello = "world" %}
   {% "hello `$sayHello`"%} // output "hello world"
   ```
