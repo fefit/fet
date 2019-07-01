@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fefit/dateutil"
 )
 
 type OperatorFloatFn func(float64, float64) float64
@@ -120,8 +122,8 @@ func Helpers() template.FuncMap {
 	helpers["empty"] = empty
 	helpers["count"] = count
 	helpers["now"] = now
-	helpers["strToTime"] = strToTime
-	helpers["date_format"] = dateFormat
+	helpers["strToTime"] = dateutil.StrToTime
+	helpers["date_format"] = dateutil.DateFormat
 	return helpers
 }
 

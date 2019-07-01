@@ -60,7 +60,7 @@ it's more like the php template engineer smarty.
   {%/for%}
   ```
 
-- [条件判断]if condition
+- if condition
   
   ```php
   {%if $num > 100%}

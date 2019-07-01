@@ -950,11 +950,9 @@ func New(config *Config) (fet *Fet, err error) {
 		Ucfirst: !config.LowerField,
 	})
 	exp := expression.New()
-	cwd, err := os.Executable()
+	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = ""
-	} else {
-		cwd = filepath.Dir(cwd)
 	}
 	fet = &Fet{
 		Config: config,
@@ -969,6 +967,7 @@ func New(config *Config) (fet *Fet, err error) {
 	fet.tmpl = tmpl
 	fet.compileDir = fet.getLastDir(config.CompileDir)
 	fet.templateDir = fet.getLastDir(config.TemplateDir)
+	fmt.Println(fet.compileDir)
 	return fet, nil
 }
 func ltrimIndex(strs *Runes, i int, total int) int {
@@ -1593,7 +1592,8 @@ func (fet *Fet) getLastDir(dir string) string {
 	} else if first == '.' {
 		return path.Join(fet.cwd, dir)
 	} else {
-		return dir
+		lastDir, _ := filepath.Abs(dir)
+		return lastDir
 	}
 }
 
@@ -1650,6 +1650,7 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, error) {
 			return "", fmt.Errorf("compile file '" + compileFile + "' failure:" + err.Error())
 		}
 	}
+	fmt.Println(extends, includes)
 	return result, nil
 }
 
