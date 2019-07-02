@@ -236,7 +236,11 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 					err = node.halt("syntax error: can not set literal '%s' as a variable name", name)
 					break
 				}
-				result = delimit(addVarPrefix + name + localNS + " := " + gen.Build(ast, genOptions, parseOptions))
+				symbol := " := "
+				if contains(currentScopes, name) {
+					symbol = " = "
+				}
+				result = delimit(addVarPrefix + name + localNS + symbol + gen.Build(ast, genOptions, parseOptions))
 			} else {
 				result = delimit(gen.Build(ast, genOptions, parseOptions))
 			}
