@@ -178,7 +178,7 @@ func main(){
     TemplateDir: "tmpls", //  default "templates"
     CompileDir: "views", // default "templates_c",
     Ignores: []string{"inc/*"}, // ignore compile paths,files that only will include.use filepath.Match
-    LowerField: true, // default false, if true will not translate keys to uppercase.
+    UcaseField: true, // default true, if false will not auto uppercase field name to uppercase.
     CompileOnline: false, // default false, you should compile your template files offline 
     Mode: types.Smarty, // default types.Smarty, also can be "types.Gofet"
   }

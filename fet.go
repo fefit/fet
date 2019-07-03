@@ -130,9 +130,9 @@ var (
 		RightDelimiter: "%}",
 		CommentSymbol:  "*",
 		TemplateDir:    "templates",
-		CompileDir:     "templates_c",
+		CompileDir:     "views",
 		CompileOnline:  false,
-		LowerField:     false,
+		UcaseField:     true,
 		Ignores:        []string{"inc/*"},
 		Mode:           types.Smarty,
 	}
@@ -916,8 +916,8 @@ func mergeConfig(options *Config) *Config {
 	if options.CompileOnline {
 		conf.CompileOnline = true
 	}
-	if options.LowerField {
-		conf.LowerField = true
+	if ucase, ok := options.UcaseField.(bool); ok {
+		conf.UcaseField = ucase
 	}
 	if options.Ignores != nil {
 		conf.Ignores = options.Ignores
@@ -950,8 +950,9 @@ func New(config *Config) (fet *Fet, err error) {
 		matchStartTag:     buildMatchTagFn(len(ld), &ld),
 		matchEndTag:       buildMatchTagFn(len(rd), &rd),
 	}
+	ucase, _ := config.UcaseField.(bool)
 	gen := generator.New(&generator.GenConf{
-		Ucfirst: !config.LowerField,
+		Ucfirst: ucase,
 	})
 	exp := expression.New()
 	cwd, err := os.Getwd()
@@ -966,12 +967,15 @@ func New(config *Config) (fet *Fet, err error) {
 		datas:  make(map[string]interface{}),
 		cwd:    cwd,
 	}
+	fet.compileDir = fet.getLastDir(config.CompileDir)
+	fet.templateDir = fet.getLastDir(config.TemplateDir)
+	if err := fet.CheckConfig(); err != nil {
+		fmt.Println("err", err)
+		return nil, err
+	}
 	tmpl := template.New("")
 	tmpl = tmpl.Funcs(funcs.All())
 	fet.tmpl = tmpl
-	fet.compileDir = fet.getLastDir(config.CompileDir)
-	fet.templateDir = fet.getLastDir(config.TemplateDir)
-	fmt.Println(fet.compileDir)
 	return fet, nil
 }
 func ltrimIndex(strs *Runes, i int, total int) int {
@@ -1451,7 +1455,7 @@ func (fet *Fet) Display(tpl string, data interface{}, output io.Writer) (err err
 // Fetch method
 func (fet *Fet) Fetch(tpl string, data interface{}) (result string, err error) {
 	tmpl, _ := fet.tmpl.Clone()
-	if code, cErr := fet.Compile(tpl, false); cErr != nil {
+	if code, _, cErr := fet.Compile(tpl, false); cErr != nil {
 		err = cErr
 	} else {
 		t, pErr := tmpl.Parse(code)
@@ -1601,8 +1605,74 @@ func (fet *Fet) getLastDir(dir string) string {
 	}
 }
 
+// check if delimiter are all symbols
+func isDelimiterOk(left string, right string) (bool, error) {
+	ls, rs := Runes(left), Runes(right)
+	lsCount, rsCount := len(ls), len(rs)
+	if lsCount == 0 {
+		return false, fmt.Errorf("the delimiter can't be empty string")
+	}
+	if lsCount != rsCount {
+		return false, fmt.Errorf("the leftDelimiter '%s' and rightDelimiter '%s' should have equal length", left, right)
+	}
+	pairs := map[string]string{
+		"{": "}",
+		"<": ">",
+		"(": ")",
+		"[": "]",
+	}
+	symbols := []string{"@", "#", "$", "%", "^", "&", "*", "=", "|", "-"}
+	for i := 0; i < lsCount; i++ {
+		flag := false
+		curL, curR := string(ls[i]), string(rs[lsCount-i-1])
+		if contains(symbols, curL) && curL == curR {
+			flag = true
+		} else if r, ok := pairs[curL]; ok && r == curR {
+			flag = true
+		}
+		if !flag {
+			return false, fmt.Errorf("please use supported symbols as delimiters")
+		}
+	}
+	if lsCount == 1 {
+		if !contains([]string{"{", "@", "#"}, string(ls[0])) {
+			return false, fmt.Errorf("can't use just single operator as delimiter")
+		}
+	}
+	return true, nil
+}
+
+// CheckConfig if have errors
+func (fet *Fet) CheckConfig() error {
+	if notexist, err := isDorfExists(fet.templateDir); err != nil {
+		if notexist {
+			return fmt.Errorf("the fet template directory '%s' doesn't exist", fet.templateDir)
+		}
+		return err
+	}
+	conf := fet.Config
+	if ok, err := isDelimiterOk(conf.LeftDelimiter, conf.RightDelimiter); !ok {
+		return err
+	}
+	if conf.Mode != types.Smarty && conf.Mode != types.Gofet {
+		return fmt.Errorf("unexpect config of 'Mode', value: %d", conf.Mode)
+	}
+	return nil
+}
+
+// check if directory of file does exist
+func isDorfExists(pathname string) (notexist bool, err error) {
+	if _, err := os.Stat(pathname); err != nil {
+		if os.IsNotExist(err) {
+			return true, fmt.Errorf("the file or directory '%s' doesn't exist", pathname)
+		}
+		return false, err
+	}
+	return false, nil
+}
+
 // Compile file
-func (fet *Fet) Compile(tpl string, writeFile bool) (string, error) {
+func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 	var (
 		result string
 		err    error
@@ -1612,6 +1682,7 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, error) {
 	includes := []string{}
 	extends := []string{}
 	captures := map[string]string{}
+	deps := []string{}
 	tplFile := fet.getRealTplPath(tpl, fet.templateDir)
 	compileFile := fet.getRealTplPath(tpl, fet.compileDir)
 	parseOptions := &generator.ParseOptions{
@@ -1637,25 +1708,26 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, error) {
 		fmt.Println("compile file:", tplFile, "--->", compileFile)
 	}
 	if result, err = fet.compileFileContent(tplFile, options); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if writeFile {
 		dir := path.Dir(compileFile)
-		if _, err = os.Stat(dir); err != nil {
-			if os.IsNotExist(err) {
+		if notexist, err := isDorfExists(dir); err != nil {
+			if notexist {
 				err = os.MkdirAll(dir, os.ModePerm)
 			}
 			if err != nil {
-				return "", fmt.Errorf("can not open the compile dir:" + dir)
+				return "", nil, fmt.Errorf("open the compile dir '%s' failure:%s", dir, err.Error())
 			}
 		}
 		err = ioutil.WriteFile(compileFile, []byte(result), 0644)
 		if err != nil {
-			return "", fmt.Errorf("compile file '" + compileFile + "' failure:" + err.Error())
+			return "", nil, fmt.Errorf("compile file '%s' failure:%s", compileFile, err.Error())
 		}
 	}
-	fmt.Println(extends, includes)
-	return result, nil
+	deps = append(deps, extends...)
+	deps = append(deps, includes...)
+	return result, deps, nil
 }
 
 func (fet *Fet) isIgnoreFile(tpl string) bool {
@@ -1673,7 +1745,11 @@ func (fet *Fet) isIgnoreFile(tpl string) bool {
 }
 
 // CompileAll files
-func (fet *Fet) CompileAll() error {
+func (fet *Fet) CompileAll() (*sync.Map, error) {
+	var (
+		relations *sync.Map
+		deps      []string
+	)
 	dir := fet.templateDir
 	files := []string{}
 	err := filepath.Walk(dir, func(pwd string, info os.FileInfo, err error) error {
@@ -1688,15 +1764,18 @@ func (fet *Fet) CompileAll() error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("sorry,fail to open the compile directory:%s", err.Error())
+		return relations, fmt.Errorf("sorry,fail to open the compile directory:%s", err.Error())
 	}
 	total := len(files)
 	if total == 0 {
-		return nil
+		return relations, nil
 	}
 	if total == 1 {
-		_, err := fet.Compile(files[0], true)
-		return err
+		_, deps, err = fet.Compile(files[0], true)
+		if err == nil {
+			relations.Store(files[0], deps)
+		}
+		return relations, err
 	}
 	var (
 		wg   sync.WaitGroup
@@ -1705,16 +1784,18 @@ func (fet *Fet) CompileAll() error {
 	wg.Add(total)
 	go func() {
 		for _, tpl := range files {
-			_, err := fet.Compile(tpl, true)
+			_, deps, err := fet.Compile(tpl, true)
 			if err != nil {
 				errs = append(errs, err.Error())
+			} else {
+				relations.Store(tpl, deps)
 			}
 			wg.Done()
 		}
 	}()
 	wg.Wait()
 	if errs != nil {
-		return fmt.Errorf("compile file error:%s", strings.Join(errs, "\n"))
+		return relations, fmt.Errorf("compile file error:%s", strings.Join(errs, "\n"))
 	}
-	return nil
+	return relations, nil
 }

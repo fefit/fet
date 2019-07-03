@@ -16,7 +16,7 @@ type FetConfig struct {
 	CommentSymbol  string
 	TemplateDir    string
 	CompileDir     string
-	LowerField     bool
+	UcaseField     interface{}
 	CompileOnline  bool
 	Ignores        []string
 	Mode           Mode
