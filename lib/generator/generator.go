@@ -7,6 +7,7 @@ import (
 
 	e "github.com/fefit/fet/lib/expression"
 	t "github.com/fefit/fet/types"
+	"github.com/fefit/fet/utils"
 )
 
 // Node for type alias
@@ -92,15 +93,17 @@ var (
 )
 
 // Build for code
-func (gen *Generator) Build(node *Node, options *GenOptions, parseOptions *ParseOptions) string {
+func (gen *Generator) Build(node *Node, options *GenOptions, parseOptions *ParseOptions) (string, error) {
 	// conf := gen.Conf
 	var str strings.Builder
 	options.Str = &str
-	gen.parseRecursive(node, options, parseOptions)
-	return str.String()
+	if err := gen.parseRecursive(node, options, parseOptions); err != nil {
+		return "", err
+	}
+	return str.String(), nil
 }
 
-func (gen *Generator) wrapToFloat(node *Node, options *GenOptions, parseOptions *ParseOptions, op string) {
+func (gen *Generator) wrapToFloat(node *Node, options *GenOptions, parseOptions *ParseOptions, op string) error {
 	str := options.Str
 	isNative := false
 	fn := toFloatFn
@@ -115,10 +118,11 @@ func (gen *Generator) wrapToFloat(node *Node, options *GenOptions, parseOptions 
 		str.WriteString(fn)
 		str.WriteString(SPACE)
 	}
-	gen.parseRecursive(node, options, parseOptions)
+	err := gen.parseRecursive(node, options, parseOptions)
 	if isNative {
 		str.WriteString(")")
 	}
+	return err
 }
 
 // FieldType for identifier
@@ -133,10 +137,10 @@ const (
 )
 
 // parse identifier
-func (gen *Generator) parseIdentifier(options *GenOptions, parseOptions *ParseOptions, name string, fieldType FieldType) {
+func (gen *Generator) parseIdentifier(options *GenOptions, parseOptions *ParseOptions, name string, fieldType FieldType) error {
 	nsFn, str := options.NsFn, options.Str
 	conf := gen.Conf
-	isInCapture := parseOptions.IsInCapture
+	isInCapture, parseConf := parseOptions.IsInCapture, parseOptions.Conf
 	if val, ok := LiteralSymbols[name]; ok {
 		if fieldType != ExpName {
 			panic(fmt.Sprint("syntax error: unexpect token ", name))
@@ -144,6 +148,7 @@ func (gen *Generator) parseIdentifier(options *GenOptions, parseOptions *ParseOp
 			str.WriteString(val)
 		}
 	} else {
+		origName := name
 		isVar, name := nsFn(name)
 		if isVar {
 			if isInCapture {
@@ -155,6 +160,9 @@ func (gen *Generator) parseIdentifier(options *GenOptions, parseOptions *ParseOp
 			}
 		} else {
 			if fieldType != FuncName {
+				if (fieldType == ObjectRoot || fieldType == ExpName) && !utils.IsIdentifier(origName, parseConf.Mode) {
+					return fmt.Errorf("wrong identifier name: %s", origName)
+				}
 				str.WriteString("$.")
 				if isInCapture {
 					str.WriteString("Data.")
@@ -166,9 +174,10 @@ func (gen *Generator) parseIdentifier(options *GenOptions, parseOptions *ParseOp
 			str.WriteString(name)
 		}
 	}
+	return nil
 }
 
-func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptions *ParseOptions) {
+func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptions *ParseOptions) (err error) {
 	str, exp := options.Str, options.Exp
 	noObjectIndex, parseConf, captures := parseOptions.NoObjectIndex, parseOptions.Conf, parseOptions.Captures
 	curType := node.Type
@@ -196,7 +205,11 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 					}
 					express := string(runes[pos.StartIndex+1 : pos.EndIndex-1])
 					ast, _ := exp.Parse(express)
-					str.WriteString(gen.Build(ast, options, parseOptions))
+					var inner string
+					if inner, err = gen.Build(ast, options, parseOptions); err != nil {
+						return err
+					}
+					str.WriteString(inner)
 					i = pos.EndIndex + 1
 					if i >= total {
 						break
@@ -215,7 +228,9 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 		case *e.IdentifierToken:
 			stat := t.Stat
 			name := string(stat.Values)
-			gen.parseIdentifier(options, parseOptions, name, ExpName)
+			if err = gen.parseIdentifier(options, parseOptions, name, ExpName); err != nil {
+				return err
+			}
 		}
 	} else if curType == "object" {
 		args := node.Arguments
@@ -290,14 +305,18 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 					}
 				} else {
 					addIndexFn()
-					gen.parseIdentifier(options, parseOptions, string(t.Stat.Values), ObjectRoot)
+					if err = gen.parseIdentifier(options, parseOptions, string(t.Stat.Values), ObjectRoot); err != nil {
+						return err
+					}
 					isParsed = true
 				}
 			}
 		}
 		if !isParsed {
 			addIndexFn()
-			gen.parseRecursive(root, options, parseOptions)
+			if err = gen.parseRecursive(root, options, parseOptions); err != nil {
+				return err
+			}
 		}
 		if !isStatic {
 			str.WriteString(SPACE)
@@ -327,13 +346,19 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 							str.WriteString(ident)
 							str.WriteString("\"")
 						} else {
-							gen.parseIdentifier(options, parseOptions, ident, ObjectField)
+							if err = gen.parseIdentifier(options, parseOptions, ident, ObjectField); err != nil {
+								return err
+							}
 						}
 					} else {
-						gen.parseRecursive(cur, options, parseOptions)
+						if err = gen.parseRecursive(cur, options, parseOptions); err != nil {
+							return err
+						}
 					}
 				} else {
-					gen.parseRecursive(cur, options, parseOptions)
+					if err = gen.parseRecursive(cur, options, parseOptions); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -350,7 +375,9 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 		if root.Type == "raw" {
 			if t, ok := root.Token.(*e.IdentifierToken); ok {
 				name := string(t.Stat.Values)
-				gen.parseIdentifier(options, parseOptions, name, FuncName)
+				if err = gen.parseIdentifier(options, parseOptions, name, FuncName); err != nil {
+					return err
+				}
 				if _, ok := NoNeedIndexFuncs[name]; ok {
 					parseOptions.NoObjectIndex = true
 				}
@@ -358,14 +385,18 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 			}
 		}
 		if !isParsed {
-			gen.parseRecursive(root, options, parseOptions)
+			if err = gen.parseRecursive(root, options, parseOptions); err != nil {
+				return err
+			}
 		}
 		str.WriteString(SPACE)
 		for i, total := 0, len(args); i < total; i++ {
 			if i > 0 {
 				str.WriteString(SPACE)
 			}
-			gen.parseRecursive(args[i], options, parseOptions)
+			if err = gen.parseRecursive(args[i], options, parseOptions); err != nil {
+				return err
+			}
 		}
 		str.WriteString(")")
 	} else {
@@ -383,6 +414,7 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 	if isNot {
 		str.WriteString(")")
 	}
+	return nil
 }
 
 // New for Generator

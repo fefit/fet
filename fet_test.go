@@ -32,6 +32,7 @@ func TestCompile(t *testing.T) {
 		CompileDir:     "tests/smarty/views",
 		LeftDelimiter:  "{%",
 		RightDelimiter: "%}",
+		UcaseField:     true,
 	}
 	fet, _ := New(curConf)
 	assertOutputToBe := func(t *testing.T, tpl string, data interface{}, output string) {

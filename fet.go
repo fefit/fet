@@ -133,7 +133,8 @@ var (
 		TemplateDir:    "templates",
 		CompileDir:     "views",
 		CompileOnline:  false,
-		UcaseField:     true,
+		UcaseField:     false,
+		Glob:           false,
 		Ignores:        []string{"inc/*"},
 		Mode:           types.Smarty,
 	}
@@ -195,6 +196,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	currentScopes := append(copyScopes, node.GlobalScopes...)
 	addVarPrefix := "$"
 	isSmartyMode := conf.Mode == types.Smarty
+	compiledText := ""
 	if isSmartyMode {
 		addVarPrefix = ""
 	}
@@ -225,64 +227,66 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	case AssignType, OutputType:
 		isAssign := node.Type == AssignType
 		if isAssign && !utils.IsIdentifier(name, conf.Mode) {
-			err = node.halt("syntax error: wrong variable name '%s', please check the parser mode", name)
-			break
+			return "", node.halt("syntax error: wrong variable name '%s', please check the parser mode", name)
 		}
 		ast, expErr := exp.Parse(content)
 		if expErr != nil {
-			err = toError(expErr)
-		} else {
-			if isAssign {
-				if _, ok := generator.LiteralSymbols[name]; ok {
-					err = node.halt("syntax error: can not set literal '%s' as a variable name", name)
-					break
-				}
-				symbol := " := "
-				if contains(currentScopes, name) {
-					symbol = " = "
-				}
-				result = delimit(addVarPrefix + name + localNS + symbol + gen.Build(ast, genOptions, parseOptions))
-			} else {
-				result = delimit(gen.Build(ast, genOptions, parseOptions))
+			return "", toError(expErr)
+		}
+		if isAssign {
+			if _, ok := generator.LiteralSymbols[name]; ok {
+				return "", node.halt("syntax error: can not set literal '%s' as a variable name", name)
 			}
+			symbol := " := "
+			if contains(currentScopes, name) {
+				symbol = " = "
+			}
+			if compiledText, err = gen.Build(ast, genOptions, parseOptions); err != nil {
+				return "", node.halt("compile error:%s", err.Error())
+			}
+			result = delimit(addVarPrefix + name + localNS + symbol + compiledText)
+		} else {
+			if compiledText, err = gen.Build(ast, genOptions, parseOptions); err != nil {
+				return "", node.halt("compile error:%s", err.Error())
+			}
+			result = delimit(compiledText)
 		}
 	case SingleType:
 		isInclude := name == "include"
 		if isInclude || name == "extends" {
 			tpl := getRealTplPath(node.Content, path.Join(node.Pwd, ".."))
 			if contains(*includes, tpl) || contains(*extends, tpl) {
-				err = node.halt("the include or extends file '%s' has a loop dependence", tpl)
-			} else {
-				incCaptures := &map[string]string{}
-				incOptions := &CompileOptions{
-					ParentScopes: currentScopes[:],
-					LocalScopes:  &[]string{},
-					Extends:      extends,
-					Includes:     includes,
-					Captures:     incCaptures,
-					ParseOptions: &generator.ParseOptions{
-						Conf:     conf,
-						Captures: incCaptures,
-					},
-				}
-				if isInclude {
-					ctx := md5.New()
-					ctx.Write([]byte(tpl))
-					curNS := hex.EncodeToString(ctx.Sum(nil))
-					incOptions.ParentNS = localNS
-					incOptions.LocalNS = "_" + curNS
-					// append include files to depends
-					*includes = append(*includes, tpl)
-				}
-				if incResult, incErr := fet.compileFileContent(tpl, incOptions); incErr != nil {
-					err = toError(incErr)
-				} else {
-					if isInclude {
-						result = incResult
-					}
-					// ignore extends
-				}
+				return "", node.halt("the include or extends file '%s' has a loop dependence", tpl)
 			}
+			incCaptures := &map[string]string{}
+			incOptions := &CompileOptions{
+				ParentScopes: currentScopes[:],
+				LocalScopes:  &[]string{},
+				Extends:      extends,
+				Includes:     includes,
+				Captures:     incCaptures,
+				ParseOptions: &generator.ParseOptions{
+					Conf:     conf,
+					Captures: incCaptures,
+				},
+			}
+			if isInclude {
+				ctx := md5.New()
+				ctx.Write([]byte(tpl))
+				curNS := hex.EncodeToString(ctx.Sum(nil))
+				incOptions.ParentNS = localNS
+				incOptions.LocalNS = "_" + curNS
+				// append include files to depends
+				*includes = append(*includes, tpl)
+			}
+			var incResult string
+			if incResult, err = fet.compileFileContent(tpl, incOptions); err != nil {
+				return "", toError(err)
+			}
+			if isInclude {
+				result = incResult
+			}
+			// ignore extends
 		}
 	case BlockStartType:
 		if name == "for" || name == "foreach" {
@@ -291,17 +295,19 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				target := props["list"].Raw
 				ast, expErr := exp.Parse(target)
 				if expErr != nil {
-					err = toError(expErr)
-				} else {
-					code := gen.Build(ast, genOptions, parseOptions)
-					key := props["key"].Raw
-					result = "range "
-					if key != "" {
-						result += addVarPrefix + key + localNS + ", "
-					}
-					result += addVarPrefix + props["value"].Raw + localNS + " := " + code
-					result = delimit(result)
+					return "", toError(expErr)
 				}
+				compiledText, err = gen.Build(ast, genOptions, parseOptions)
+				if err != nil {
+					return "", node.halt("parse 'foreach' error:%s", err.Error())
+				}
+				key := props["key"].Raw
+				result = "range "
+				if key != "" {
+					result += addVarPrefix + key + localNS + ", "
+				}
+				result += addVarPrefix + props["value"].Raw + localNS + " := " + compiledText
+				result = delimit(result)
 			} else {
 				data := *node.Data
 				vars := data["Vars"]
@@ -312,10 +318,13 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				for key, name := range vars {
 					ast, expErr := exp.Parse(initial[key])
 					if expErr != nil {
-						err = toError(expErr)
-						break
+						return "", toError(expErr)
 					}
-					res.WriteString(delimit(addVarPrefix + name + localNS + ":=" + gen.Build(ast, genOptions, parseOptions)))
+					compiledText, err = gen.Build(ast, genOptions, parseOptions)
+					if err != nil {
+						return "", node.halt("parse 'for' error:%s", err.Error())
+					}
+					res.WriteString(delimit(addVarPrefix + name + localNS + ":=" + compiledText))
 				}
 				suffixNS := indexString(node.StartIndex) + "_" + indexString(node.EndIndex) + localNS
 				chanName := "$loop_" + suffixNS
@@ -327,52 +336,58 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				currentScopes = append(currentScopes, vars...)
 				ast, expErr := exp.Parse(conds)
 				if expErr != nil {
-					err = toError(expErr)
-				} else {
-					res.WriteString(delimit("if " + gen.Build(ast, genOptions, parseOptions)))
-					res.WriteString(delimit(chanName + ".Next"))
-					res.WriteString(delimit("else"))
-					res.WriteString(delimit(chanName + ".Close"))
-					res.WriteString(delimit("end"))
-					res.WriteString(delimit("if (gt " + chanName + ".Loop -1)"))
+					return "", toError(expErr)
 				}
+				compiledText, err = gen.Build(ast, genOptions, parseOptions)
+				if err != nil {
+					return "", node.halt("parse 'for' statement error:%s", err.Error())
+				}
+				res.WriteString(delimit("if " + compiledText))
+				res.WriteString(delimit(chanName + ".Next"))
+				res.WriteString(delimit("else"))
+				res.WriteString(delimit(chanName + ".Close"))
+				res.WriteString(delimit("end"))
+				res.WriteString(delimit("if (gt " + chanName + ".Loop -1)"))
 				result = res.String()
 			}
 		} else if name == "if" {
 			ast, expErr := exp.Parse(content)
 			if expErr != nil {
-				err = toError(expErr)
-			} else {
-				code := gen.Build(ast, genOptions, parseOptions)
-				result = delimit("if " + code)
+				return "", toError(expErr)
 			}
+			compiledText, err = gen.Build(ast, genOptions, parseOptions)
+			if err != nil {
+				return "", node.halt("parse 'if' statement error:%s", err.Error())
+			}
+			result = delimit("if " + compiledText)
 		} else if name == "capture" {
 			parseOptions.IsInCapture = true
 			keyName := "$fet.capture." + content
 			if _, ok := (*captures)[keyName]; ok {
 				// capture name has exists
-				err = node.halt("repeated capture name '" + content + "'")
-			} else {
-				capVar := "$fet_capture_" + content + localNS
-				result = "{{" + capVar + " := (INJECT_CAPTURE_SCOPE . "
-				for _, varName := range currentScopes {
-					varName = strings.TrimPrefix(varName, "$")
-					result += "\"" + strings.Title(varName) + "\" $" + varName
-				}
-				result += ")}}"
-				(*captures)[keyName] = capVar
-				result += "{{ define \"" + content + "\"}}"
+				return "", node.halt("repeated capture name '" + content + "'")
 			}
+			capVar := "$fet_capture_" + content + localNS
+			result = "{{" + capVar + " := (INJECT_CAPTURE_SCOPE . "
+			for _, varName := range currentScopes {
+				varName = strings.TrimPrefix(varName, "$")
+				result += "\"" + strings.Title(varName) + "\" $" + varName
+			}
+			result += ")}}"
+			(*captures)[keyName] = capVar
+			result += "{{ define \"" + content + "\"}}"
 		}
 	case BlockFeatureType:
 		if name == "elseif" {
 			ast, expErr := exp.Parse(content)
 			if expErr != nil {
-				err = toError(expErr)
-			} else {
-				code := gen.Build(ast, genOptions, parseOptions)
-				result = delimit("else if " + code)
+				return "", toError(expErr)
 			}
+			compiledText, err = gen.Build(ast, genOptions, parseOptions)
+			if err != nil {
+				return "", node.halt("parse 'if' statement error:%s", err.Error())
+			}
+			result = delimit("else if " + compiledText)
 		} else if name == "else" {
 			result = delimit("else")
 		}
@@ -393,23 +408,26 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				for i, total := 0, len(loops); i < total; {
 					ast, expErr := exp.Parse(loops[i])
 					if expErr != nil {
-						err = toError(expErr)
-						break
+						return "", toError(expErr)
 					}
-					code := gen.Build(ast, genOptions, parseOptions)
+					compiledText, err = gen.Build(ast, genOptions, parseOptions)
+					if err != nil {
+						return "", node.halt("parse 'for' loop error:%s", err.Error())
+					}
 					ast, expErr = exp.Parse(loops[i+1])
 					if expErr != nil {
-						err = toError(expErr)
-						break
+						return "", toError(expErr)
 					}
-					code += " = " + gen.Build(ast, genOptions, parseOptions)
-					result += delimit(code)
+					var code string
+					if code, err = gen.Build(ast, genOptions, parseOptions); err != nil {
+						return "", node.halt("parse 'for' loops error:%s", err.Error())
+					}
+					compiledText += " = " + code
+					result += delimit(compiledText)
 					i += 2
 				}
-				if err == nil {
-					//  first: close range; last: close if
-					result += delimit("end") + delimit("end")
-				}
+				//  first: close range; last: close if
+				result += delimit("end") + delimit("end")
 			} else {
 				result = delimit("end")
 			}
@@ -844,11 +862,14 @@ func validForTag(node *Node, conf *Config) (errmsg string) {
 		}
 	}
 	if isForEach {
+		if value == nil || list == nil {
+			return fmt.Sprintf("the 'foreach' label's value is not setted")
+		}
 		if !utils.IsIdentifier(value.Raw, conf.Mode) {
-			return fmt.Sprintf("the 'for' label's value '%s' is a wrong identifier", value.Raw)
+			return fmt.Sprintf("the 'foreach' label's value '%s' is a wrong identifier", value.Raw)
 		}
 		if hasKey && !utils.IsIdentifier(key.Raw, conf.Mode) {
-			return fmt.Sprintf("the 'for' label's key '%s' is a wrong identifier", key.Raw)
+			return fmt.Sprintf("the 'foreach' label's key '%s' is a wrong identifier", key.Raw)
 		}
 		props := *node.Props
 		props["key"] = key
@@ -922,8 +943,11 @@ func mergeConfig(options *Config) *Config {
 	if options.CompileOnline {
 		conf.CompileOnline = true
 	}
-	if ucase, ok := options.UcaseField.(bool); ok {
-		conf.UcaseField = ucase
+	if options.UcaseField {
+		conf.UcaseField = true
+	}
+	if options.Glob {
+		conf.Glob = true
 	}
 	if options.Ignores != nil {
 		conf.Ignores = options.Ignores
@@ -956,7 +980,7 @@ func New(config *Config) (fet *Fet, err error) {
 		matchStartTag:     buildMatchTagFn(len(ld), &ld),
 		matchEndTag:       buildMatchTagFn(len(rd), &rd),
 	}
-	ucase, _ := config.UcaseField.(bool)
+	ucase := config.UcaseField
 	gen := generator.New(&generator.GenConf{
 		Ucfirst: ucase,
 	})
@@ -1737,8 +1761,9 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 	deps := []string{}
 	tplFile := fet.GetTemplateFile(tpl)
 	compileFile := fet.GetCompileFile(tplFile)
+	conf := fet.Config
 	parseOptions := &generator.ParseOptions{
-		Conf:     fet.Config,
+		Conf:     conf,
 		Captures: &captures,
 	}
 	options := &CompileOptions{
@@ -1761,6 +1786,12 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 	}
 	if result, err = fet.compileFileContent(tplFile, options); err != nil {
 		return "", nil, err
+	}
+	if conf.Glob {
+		basename := path.Base(tplFile)
+		ext := path.Ext(tplFile)
+		filename := strings.TrimSuffix(basename, ext)
+		result = "{{define \"" + filename + "\"}}" + result + "{{end}}"
 	}
 	if writeFile {
 		dir := path.Dir(compileFile)
