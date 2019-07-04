@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -246,18 +247,14 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			}
 		}
 	case SingleType:
-		if name == "include" {
+		isInclude := name == "include"
+		if isInclude || name == "extends" {
 			tpl := fet.getRealTplPath(node.Content, path.Join(node.Pwd, ".."))
-			ctx := md5.New()
-			ctx.Write([]byte(tpl))
-			curNS := hex.EncodeToString(ctx.Sum(nil))
 			if contains(*includes, tpl) || contains(*extends, tpl) {
-				err = node.halt("the include file '%s' has a loop dependence", tpl)
+				err = node.halt("the include or extends file '%s' has a loop dependence", tpl)
 			} else {
 				incCaptures := &map[string]string{}
 				incOptions := &CompileOptions{
-					ParentNS:     localNS,
-					LocalNS:      "_" + curNS,
 					ParentScopes: currentScopes[:],
 					LocalScopes:  &[]string{},
 					Extends:      extends,
@@ -268,15 +265,24 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 						Captures: incCaptures,
 					},
 				}
+				if isInclude {
+					ctx := md5.New()
+					ctx.Write([]byte(tpl))
+					curNS := hex.EncodeToString(ctx.Sum(nil))
+					incOptions.ParentNS = localNS
+					incOptions.LocalNS = "_" + curNS
+					// append include files to depends
+					*includes = append(*includes, tpl)
+				}
 				if incResult, incErr := fet.compileFileContent(tpl, incOptions); incErr != nil {
 					err = toError(incErr)
 				} else {
-					result = incResult
+					if isInclude {
+						result = incResult
+					}
+					// ignore extends
 				}
 			}
-		} else if name == "extends" {
-			// ignore extends
-			// load file because of variable scopes
 		}
 	case BlockStartType:
 		if name == "for" || name == "foreach" {
@@ -970,7 +976,6 @@ func New(config *Config) (fet *Fet, err error) {
 	fet.compileDir = fet.getLastDir(config.CompileDir)
 	fet.templateDir = fet.getLastDir(config.TemplateDir)
 	if err := fet.CheckConfig(); err != nil {
-		fmt.Println("err", err)
 		return nil, err
 	}
 	tmpl := template.New("")
@@ -978,6 +983,40 @@ func New(config *Config) (fet *Fet, err error) {
 	fet.tmpl = tmpl
 	return fet, nil
 }
+
+// LoadConf load the config file
+func LoadConf(confFile string) (*Config, error) {
+	if !path.IsAbs(confFile) {
+		cwd := ""
+		if wd, err := os.Getwd(); err == nil {
+			cwd = wd
+		}
+		confFile = path.Join(cwd, confFile)
+	}
+	if notexist, err := isDorfExists(confFile); err != nil {
+		if notexist {
+			return nil, fmt.Errorf("can't find the config file:%s", confFile)
+		}
+		return nil, err
+	}
+	var (
+		content []byte
+		err     error
+	)
+	if content, err = ioutil.ReadFile(confFile); err == nil {
+		conf := &Config{}
+		err = json.Unmarshal(content, conf)
+		if err != nil {
+			return nil, fmt.Errorf("read config file error:%s", err.Error())
+		}
+		return conf, nil
+	}
+	return nil, err
+}
+
+/**
+* trim left spaces and return the no space char index
+ */
 func ltrimIndex(strs *Runes, i int, total int) int {
 	index := i
 	for index < total {
@@ -1747,7 +1786,7 @@ func (fet *Fet) isIgnoreFile(tpl string) bool {
 // CompileAll files
 func (fet *Fet) CompileAll() (*sync.Map, error) {
 	var (
-		relations *sync.Map
+		relations sync.Map
 		deps      []string
 	)
 	dir := fet.templateDir
@@ -1764,26 +1803,26 @@ func (fet *Fet) CompileAll() (*sync.Map, error) {
 		return nil
 	})
 	if err != nil {
-		return relations, fmt.Errorf("sorry,fail to open the compile directory:%s", err.Error())
+		return &relations, fmt.Errorf("sorry,fail to open the compile directory:%s", err.Error())
 	}
 	total := len(files)
 	if total == 0 {
-		return relations, nil
+		return &relations, nil
 	}
 	if total == 1 {
 		_, deps, err = fet.Compile(files[0], true)
 		if err == nil {
 			relations.Store(files[0], deps)
 		}
-		return relations, err
+		return &relations, err
 	}
 	var (
 		wg   sync.WaitGroup
 		errs []string
 	)
 	wg.Add(total)
-	go func() {
-		for _, tpl := range files {
+	for _, tpl := range files {
+		go func(tpl string) {
 			_, deps, err := fet.Compile(tpl, true)
 			if err != nil {
 				errs = append(errs, err.Error())
@@ -1791,11 +1830,11 @@ func (fet *Fet) CompileAll() (*sync.Map, error) {
 				relations.Store(tpl, deps)
 			}
 			wg.Done()
-		}
-	}()
+		}(tpl)
+	}
 	wg.Wait()
 	if errs != nil {
-		return relations, fmt.Errorf("compile file error:%s", strings.Join(errs, "\n"))
+		return &relations, fmt.Errorf("compile file error:%s", strings.Join(errs, "\n"))
 	}
-	return relations, nil
+	return &relations, nil
 }
