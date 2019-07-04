@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"math"
 	"reflect"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -86,6 +85,7 @@ func Inject() template.FuncMap {
 		return a ^ b
 	})
 	injects["INJECT_TO_FLOAT"] = toFloat
+	injects["INJECT_TO_FORS"] = toFloatOrString
 	injects["INJECT_MAKE_LOOP_CHAN"] = func() (*LoopChan, error) {
 		loopChan := &LoopChan{}
 		loopChan.init()
@@ -189,6 +189,15 @@ func toInt(num interface{}) (int64, error) {
 		}
 		fv := v.Convert(intType)
 		return fv.Int(), nil
+	}
+}
+
+func toFloatOrString(target interface{}) (interface{}, error) {
+	switch t := target.(type) {
+	case string:
+		return t, nil
+	default:
+		return toFloat(target)
 	}
 }
 
@@ -388,139 +397,6 @@ func capture(data interface{}, variables ...interface{}) CaptureData {
 	}
 	result.Variables = vars
 	return result
-}
-func strToTime(target interface{}) (time.Time, error) {
-	return time.Now(), nil
-}
-
-func dateFormat(target interface{}, format string) (string, error) {
-	layouts := []string{
-		// year
-		"Y", "2006",
-		"y", "06",
-		// month
-		"m", "01",
-		"n", "1",
-		// date
-		"d", "02",
-		"j", "2",
-		// hours
-		"h", "03",
-		"g", "3",
-		"G", "15",
-		// minutes
-		"i", "04",
-		// seconds
-		"s", "05",
-	}
-	formats := map[string]string{
-		// am, pm
-		"a": "pm",
-		"A": "PM",
-		// month
-		"F": "January",
-		"M": "Jan",
-		// week
-		"D": "Mon",
-		"l": "Monday",
-	}
-	N := func(t time.Time) string {
-		weekday := t.Weekday()
-		return fmt.Sprintf("%d", int(weekday))
-	}
-	w := func(t time.Time) string {
-		weekday := t.Weekday()
-		dayNum := int(weekday) % 7
-		return fmt.Sprintf("%d", dayNum)
-	}
-	z := func(t time.Time) string {
-		yearday := t.YearDay()
-		return fmt.Sprintf("%d", yearday-1)
-	}
-	W := func(t time.Time) string {
-		_, week := t.ISOWeek()
-		return fmt.Sprintf("%d", week)
-	}
-	L := func(t time.Time) string {
-		yearday := t.YearDay()
-		if yearday > 365 {
-			return "1"
-		}
-		return "0"
-	}
-	t := func(t time.Time) string {
-		nums := [12]int{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
-		monthIndex := int(t.Month()) - 1
-		if monthIndex == 1 && t.YearDay() > 365 {
-			return "29"
-		}
-		return fmt.Sprintf("%d", nums[monthIndex])
-	}
-	H := func(t time.Time) string {
-		hour := t.Hour()
-		return fmt.Sprintf("%02d", hour)
-	}
-	fns := map[string]func(t time.Time) string{
-		"N": N,
-		"w": w,
-		"z": z,
-		"W": W,
-		"L": L,
-		"t": t,
-		"H": H,
-	}
-	repRule := strings.NewReplacer(layouts...)
-	layout := repRule.Replace(format)
-	regRule := func() *regexp.Regexp {
-		var str strings.Builder
-		str.WriteString("[")
-		for key := range formats {
-			str.WriteString(key)
-		}
-		for key := range fns {
-			str.WriteString(key)
-		}
-		str.WriteString("]")
-		rule, _ := regexp.Compile(str.String())
-		return rule
-	}()
-	var timeTarget time.Time
-	if cur, ok := target.(time.Time); ok {
-		timeTarget = cur
-	} else {
-		if cur, err := strToTime(target); err == nil {
-			timeTarget = cur
-		} else {
-			return "", err
-		}
-	}
-	result := timeTarget.Format(layout)
-	result = regRule.ReplaceAllStringFunc(result, func(name string) string {
-		if layout, ok := formats[name]; ok {
-			return timeTarget.Format(layout)
-		} else if fn, ok := fns[name]; ok {
-			return fn(timeTarget)
-		}
-		return ""
-	})
-	return result, nil
-}
-
-/*
-* https://gist.github.com/elliotchance/d419395aa776d632d897
- */
-func replaceWith(re *regexp.Regexp, str string, repl func(args ...string) string) string {
-	result := ""
-	lastIndex := 0
-	for _, v := range re.FindAllSubmatchIndex([]byte(str), -1) {
-		groups := []string{}
-		for i := 0; i < len(v); i += 2 {
-			groups = append(groups, str[v[i]:v[i+1]])
-		}
-		result += str[lastIndex:v[0]] + repl(groups...)
-		lastIndex = v[1]
-	}
-	return result + str[lastIndex:]
 }
 
 func now() int64 {

@@ -1375,7 +1375,11 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 						root.Operator = ""
 					}
 					if isNextTokenNode {
-						fnNode.Arguments = append(fnNode.Arguments, nextNode)
+						if nextNode.Root != nil {
+							fnNode.Arguments = append(fnNode.Arguments, nextNode)
+						} else {
+							fnNode.Arguments = nextNode.Arguments
+						}
 					} else {
 						if op, ok := nextNode.Token.(*OperatorToken); ok && op.Name == ")" {
 							// do nothing
@@ -1402,7 +1406,6 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 		}
 	}
 	//
-
 	if len(parsed) == 1 {
 		curToken := parsed[0]
 		if result, ok := curToken.(*TokenNode); ok {

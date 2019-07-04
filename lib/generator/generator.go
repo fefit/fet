@@ -41,10 +41,11 @@ type opFnNames map[string]string
 
 const (
 	// SPACE CONSTANT
-	SPACE     = " "
-	toFloatFn = "INJECT_TO_FLOAT"
-	indexFn   = "INJECT_INDEX"
-	concatFn  = "concat"
+	SPACE           = " "
+	toFloatFn       = "INJECT_TO_FLOAT"
+	toFloatOrString = "INJECT_TO_FORS"
+	indexFn         = "INJECT_INDEX"
+	concatFn        = "concat"
 )
 
 var (
@@ -99,11 +100,19 @@ func (gen *Generator) Build(node *Node, options *GenOptions, parseOptions *Parse
 	return str.String()
 }
 
-func (gen *Generator) wrapToFloat(node *Node, options *GenOptions, parseOptions *ParseOptions, isNative bool) {
+func (gen *Generator) wrapToFloat(node *Node, options *GenOptions, parseOptions *ParseOptions, op string) {
 	str := options.Str
+	isNative := false
+	fn := toFloatFn
+	if _, ok := compareFnNames[op]; ok {
+		isNative = true
+		if op == "==" {
+			fn = toFloatOrString
+		}
+	}
 	if isNative {
 		str.WriteString("(")
-		str.WriteString(toFloatFn)
+		str.WriteString(fn)
 		str.WriteString(SPACE)
 	}
 	gen.parseRecursive(node, options, parseOptions)
@@ -361,18 +370,14 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 		str.WriteString(")")
 	} else {
 		op := node.Operator
-		isNativeCompare := false
 		if name, ok := operatorFnNames[op]; ok {
-			if _, ok := compareFnNames[op]; ok {
-				isNativeCompare = true
-			}
 			str.WriteString("(")
 			str.WriteString(name)
 			str.WriteString(SPACE)
 		}
-		gen.wrapToFloat(node.Left, options, parseOptions, isNativeCompare)
+		gen.wrapToFloat(node.Left, options, parseOptions, op)
 		str.WriteString(SPACE)
-		gen.wrapToFloat(node.Right, options, parseOptions, isNativeCompare)
+		gen.wrapToFloat(node.Right, options, parseOptions, op)
 		str.WriteString(")")
 	}
 	if isNot {
