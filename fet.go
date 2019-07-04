@@ -249,7 +249,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	case SingleType:
 		isInclude := name == "include"
 		if isInclude || name == "extends" {
-			tpl := fet.getRealTplPath(node.Content, path.Join(node.Pwd, ".."))
+			tpl := getRealTplPath(node.Content, path.Join(node.Pwd, ".."))
 			if contains(*includes, tpl) || contains(*extends, tpl) {
 				err = node.halt("the include or extends file '%s' has a loop dependence", tpl)
 			} else {
@@ -1470,7 +1470,7 @@ func (fet *Fet) Display(tpl string, data interface{}, output io.Writer) (err err
 		}
 		return err
 	}
-	compileFile := fet.getRealTplPath(tpl, fet.compileDir)
+	compileFile := fet.GetCompileFile(tpl)
 	if _, err = os.Stat(compileFile); err != nil {
 		if os.IsNotExist(err) {
 			err = fmt.Errorf("the compile file '%s' is not exist", compileFile)
@@ -1520,11 +1520,24 @@ func contains(arr []string, key string) bool {
 	return false
 }
 
-func (fet *Fet) getRealTplPath(tpl string, currentDir string) string {
+func getRealTplPath(tpl string, currentDir string) string {
 	if path.IsAbs(tpl) {
 		return tpl
 	}
 	return path.Join(currentDir, tpl)
+}
+
+// GetTemplateFile get the template file path
+func (fet *Fet) GetTemplateFile(tpl string) string {
+	return getRealTplPath(tpl, fet.templateDir)
+}
+
+// GetCompileFile get the template file path
+func (fet *Fet) GetCompileFile(tpl string) string {
+	if path.IsAbs(tpl) {
+		tpl, _ = filepath.Rel(fet.templateDir, tpl)
+	}
+	return path.Join(fet.compileDir, tpl)
 }
 
 func (fet *Fet) parseFile(tpl string, blocks []*Node, extends *[]string, nested int) (*NodeList, bool, error) {
@@ -1555,7 +1568,7 @@ func (fet *Fet) parseFile(tpl string, blocks []*Node, extends *[]string, nested 
 				if nested == 0 {
 					*extends = append(*extends, tpl)
 				}
-				tpl = fet.getRealTplPath(exts[0].Content, path.Join(tpl, ".."))
+				tpl = getRealTplPath(exts[0].Content, path.Join(tpl, ".."))
 				nl, _, err := fet.parseFile(tpl, blocks, extends, nested+1)
 				*extends = append(*extends, tpl)
 				return nl, true, err
@@ -1722,8 +1735,8 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 	extends := []string{}
 	captures := map[string]string{}
 	deps := []string{}
-	tplFile := fet.getRealTplPath(tpl, fet.templateDir)
-	compileFile := fet.getRealTplPath(tpl, fet.compileDir)
+	tplFile := fet.GetTemplateFile(tpl)
+	compileFile := fet.GetCompileFile(tplFile)
 	parseOptions := &generator.ParseOptions{
 		Conf:     fet.Config,
 		Captures: &captures,
@@ -1769,7 +1782,8 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 	return result, deps, nil
 }
 
-func (fet *Fet) isIgnoreFile(tpl string) bool {
+// IsIgnoreFile check file if is ignore
+func (fet *Fet) IsIgnoreFile(tpl string) bool {
 	conf := fet.Config
 	ignores := conf.Ignores
 	if len(ignores) == 0 {
@@ -1797,7 +1811,7 @@ func (fet *Fet) CompileAll() (*sync.Map, error) {
 			fmt.Println("read compile file failure:", err)
 			return nil
 		}
-		if !info.IsDir() && !fet.isIgnoreFile(tpl) {
+		if !info.IsDir() && !fet.IsIgnoreFile(tpl) {
 			files = append(files, tpl)
 		}
 		return nil
