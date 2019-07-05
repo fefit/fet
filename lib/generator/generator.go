@@ -160,7 +160,8 @@ func (gen *Generator) parseIdentifier(options *GenOptions, parseOptions *ParseOp
 			}
 		} else {
 			if fieldType != FuncName {
-				if (fieldType == ObjectRoot || fieldType == ExpName) && !utils.IsIdentifier(origName, parseConf.Mode) {
+				isRootField := fieldType == ObjectRoot || fieldType == ExpName
+				if isRootField && !utils.IsIdentifier(origName, parseConf.Mode) {
 					return fmt.Errorf("wrong identifier name: %s", origName)
 				}
 				str.WriteString("$.")
@@ -228,7 +229,9 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 		case *e.IdentifierToken:
 			stat := t.Stat
 			name := string(stat.Values)
-			if err = gen.parseIdentifier(options, parseOptions, name, ExpName); err != nil {
+			if name == "$fet" {
+				str.WriteString(".")
+			} else if err = gen.parseIdentifier(options, parseOptions, name, ExpName); err != nil {
 				return err
 			}
 		}

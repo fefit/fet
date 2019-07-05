@@ -254,7 +254,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	case SingleType:
 		isInclude := name == "include"
 		if isInclude || name == "extends" {
-			tpl := getRealTplPath(node.Content, path.Join(node.Pwd, ".."))
+			tpl := getRealTplPath(node.Content, path.Join(node.Pwd, ".."), fet.templateDir)
 			if contains(*includes, tpl) || contains(*extends, tpl) {
 				return "", node.halt("the include or extends file '%s' has a loop dependence", tpl)
 			}
@@ -1544,16 +1544,18 @@ func contains(arr []string, key string) bool {
 	return false
 }
 
-func getRealTplPath(tpl string, currentDir string) string {
+func getRealTplPath(tpl string, currentDir string, baseDir string) string {
 	if path.IsAbs(tpl) {
 		return tpl
+	} else if tpl[0] == '.' {
+		return path.Join(currentDir, tpl)
 	}
-	return path.Join(currentDir, tpl)
+	return path.Join(baseDir, tpl)
 }
 
 // GetTemplateFile get the template file path
 func (fet *Fet) GetTemplateFile(tpl string) string {
-	return getRealTplPath(tpl, fet.templateDir)
+	return getRealTplPath(tpl, fet.templateDir, fet.templateDir)
 }
 
 // GetCompileFile get the template file path
@@ -1592,7 +1594,7 @@ func (fet *Fet) parseFile(tpl string, blocks []*Node, extends *[]string, nested 
 				if nested == 0 {
 					*extends = append(*extends, tpl)
 				}
-				tpl = getRealTplPath(exts[0].Content, path.Join(tpl, ".."))
+				tpl = getRealTplPath(exts[0].Content, path.Join(tpl, ".."), fet.templateDir)
 				nl, _, err := fet.parseFile(tpl, blocks, extends, nested+1)
 				*extends = append(*extends, tpl)
 				return nl, true, err
@@ -1782,13 +1784,14 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 				fmt.Println("compile success")
 			}
 		}()
-		fmt.Println("compile file:", tplFile, "--->", compileFile)
+		relaTpl, _ := filepath.Rel(fet.templateDir, tplFile)
+		fmt.Println("compile file:", relaTpl)
 	}
 	if result, err = fet.compileFileContent(tplFile, options); err != nil {
 		return "", nil, err
 	}
 	if conf.Glob {
-		basename := path.Base(tplFile)
+		basename, _ := filepath.Rel(fet.templateDir, tplFile)
 		ext := path.Ext(tplFile)
 		filename := strings.TrimSuffix(basename, ext)
 		result = "{{define \"" + filename + "\"}}" + result + "{{end}}"
@@ -1820,6 +1823,9 @@ func (fet *Fet) IsIgnoreFile(tpl string) bool {
 	if len(ignores) == 0 {
 		return false
 	}
+	if path.IsAbs(tpl) {
+		tpl, _ = filepath.Rel(fet.templateDir, tpl)
+	}
 	for _, glob := range ignores {
 		if ok, _ := filepath.Match(glob, tpl); ok {
 			return true
@@ -1843,7 +1849,7 @@ func (fet *Fet) CompileAll() (*sync.Map, error) {
 			return nil
 		}
 		if !info.IsDir() && !fet.IsIgnoreFile(tpl) {
-			files = append(files, tpl)
+			files = append(files, pwd)
 		}
 		return nil
 	})
@@ -1862,22 +1868,22 @@ func (fet *Fet) CompileAll() (*sync.Map, error) {
 		return &relations, err
 	}
 	var (
-		wg   sync.WaitGroup
+		// wg   sync.WaitGroup
 		errs []string
 	)
-	wg.Add(total)
+	// wg.Add(total)
 	for _, tpl := range files {
-		go func(tpl string) {
+		func(tpl string) {
 			_, deps, err := fet.Compile(tpl, true)
 			if err != nil {
 				errs = append(errs, err.Error())
 			} else {
 				relations.Store(tpl, deps)
 			}
-			wg.Done()
+			//	wg.Done()
 		}(tpl)
 	}
-	wg.Wait()
+	// wg.Wait()
 	if errs != nil {
 		return &relations, fmt.Errorf("compile file error:%s", strings.Join(errs, "\n"))
 	}
