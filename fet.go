@@ -980,11 +980,11 @@ func New(config *Config) (fet *Fet, err error) {
 		matchStartTag:     buildMatchTagFn(len(ld), &ld),
 		matchEndTag:       buildMatchTagFn(len(rd), &rd),
 	}
+	exp := expression.New()
 	ucase := config.UcaseField
 	gen := generator.New(&generator.GenConf{
 		Ucfirst: ucase,
 	})
-	exp := expression.New()
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = ""
@@ -992,10 +992,9 @@ func New(config *Config) (fet *Fet, err error) {
 	fet = &Fet{
 		Config: config,
 		Params: params,
-		gen:    gen,
-		exp:    exp,
-		datas:  make(map[string]interface{}),
 		cwd:    cwd,
+		exp:    exp,
+		gen:    gen,
 	}
 	fet.CompileDir = fet.getLastDir(config.CompileDir)
 	fet.TemplateDir = fet.getLastDir(config.TemplateDir)
@@ -1868,22 +1867,23 @@ func (fet *Fet) CompileAll() (*sync.Map, error) {
 		return &relations, err
 	}
 	var (
-		// wg   sync.WaitGroup
+		wg   sync.WaitGroup
 		errs []string
 	)
-	// wg.Add(total)
+	wg.Add(total)
 	for _, tpl := range files {
-		func(tpl string) {
-			_, deps, err := fet.Compile(tpl, true)
+		go func(tpl string, fet *Fet) {
+			curFet, _ := New(fet.Config)
+			_, deps, err := curFet.Compile(tpl, true)
 			if err != nil {
 				errs = append(errs, err.Error())
 			} else {
 				relations.Store(tpl, deps)
 			}
-			//	wg.Done()
-		}(tpl)
+			wg.Done()
+		}(tpl, fet)
 	}
-	// wg.Wait()
+	wg.Wait()
 	if errs != nil {
 		return &relations, fmt.Errorf("compile file error:%s", strings.Join(errs, "\n"))
 	}
