@@ -254,7 +254,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	case SingleType:
 		isInclude := name == "include"
 		if isInclude || name == "extends" {
-			tpl := getRealTplPath(node.Content, path.Join(node.Pwd, ".."), fet.templateDir)
+			tpl := getRealTplPath(node.Content, path.Join(node.Pwd, ".."), fet.TemplateDir)
 			if contains(*includes, tpl) || contains(*extends, tpl) {
 				return "", node.halt("the include or extends file '%s' has a loop dependence", tpl)
 			}
@@ -913,8 +913,8 @@ func (node *Node) Validate(conf *Config) (errmsg string) {
 type Fet struct {
 	*Config
 	Params
-	compileDir  string
-	templateDir string
+	CompileDir  string
+	TemplateDir string
 	exp         *expression.Expression
 	gen         *generator.Generator
 	datas       map[string]interface{}
@@ -997,8 +997,8 @@ func New(config *Config) (fet *Fet, err error) {
 		datas:  make(map[string]interface{}),
 		cwd:    cwd,
 	}
-	fet.compileDir = fet.getLastDir(config.CompileDir)
-	fet.templateDir = fet.getLastDir(config.TemplateDir)
+	fet.CompileDir = fet.getLastDir(config.CompileDir)
+	fet.TemplateDir = fet.getLastDir(config.TemplateDir)
 	if err := fet.CheckConfig(); err != nil {
 		return nil, err
 	}
@@ -1555,15 +1555,15 @@ func getRealTplPath(tpl string, currentDir string, baseDir string) string {
 
 // GetTemplateFile get the template file path
 func (fet *Fet) GetTemplateFile(tpl string) string {
-	return getRealTplPath(tpl, fet.templateDir, fet.templateDir)
+	return getRealTplPath(tpl, fet.TemplateDir, fet.TemplateDir)
 }
 
 // GetCompileFile get the template file path
 func (fet *Fet) GetCompileFile(tpl string) string {
 	if path.IsAbs(tpl) {
-		tpl, _ = filepath.Rel(fet.templateDir, tpl)
+		tpl, _ = filepath.Rel(fet.TemplateDir, tpl)
 	}
-	return path.Join(fet.compileDir, tpl)
+	return path.Join(fet.CompileDir, tpl)
 }
 
 func (fet *Fet) parseFile(tpl string, blocks []*Node, extends *[]string, nested int) (*NodeList, bool, error) {
@@ -1594,7 +1594,7 @@ func (fet *Fet) parseFile(tpl string, blocks []*Node, extends *[]string, nested 
 				if nested == 0 {
 					*extends = append(*extends, tpl)
 				}
-				tpl = getRealTplPath(exts[0].Content, path.Join(tpl, ".."), fet.templateDir)
+				tpl = getRealTplPath(exts[0].Content, path.Join(tpl, ".."), fet.TemplateDir)
 				nl, _, err := fet.parseFile(tpl, blocks, extends, nested+1)
 				*extends = append(*extends, tpl)
 				return nl, true, err
@@ -1722,9 +1722,9 @@ func isDelimiterOk(left string, right string) (bool, error) {
 
 // CheckConfig if have errors
 func (fet *Fet) CheckConfig() error {
-	if notexist, err := isDorfExists(fet.templateDir); err != nil {
+	if notexist, err := isDorfExists(fet.TemplateDir); err != nil {
 		if notexist {
-			return fmt.Errorf("the fet template directory '%s' doesn't exist", fet.templateDir)
+			return fmt.Errorf("the fet template directory '%s' doesn't exist", fet.TemplateDir)
 		}
 		return err
 	}
@@ -1784,14 +1784,14 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 				fmt.Println("compile success")
 			}
 		}()
-		relaTpl, _ := filepath.Rel(fet.templateDir, tplFile)
+		relaTpl, _ := filepath.Rel(fet.TemplateDir, tplFile)
 		fmt.Println("compile file:", relaTpl)
 	}
 	if result, err = fet.compileFileContent(tplFile, options); err != nil {
 		return "", nil, err
 	}
 	if conf.Glob {
-		basename, _ := filepath.Rel(fet.templateDir, tplFile)
+		basename, _ := filepath.Rel(fet.TemplateDir, tplFile)
 		ext := path.Ext(tplFile)
 		filename := strings.TrimSuffix(basename, ext)
 		result = "{{define \"" + filename + "\"}}" + result + "{{end}}"
@@ -1824,7 +1824,7 @@ func (fet *Fet) IsIgnoreFile(tpl string) bool {
 		return false
 	}
 	if path.IsAbs(tpl) {
-		tpl, _ = filepath.Rel(fet.templateDir, tpl)
+		tpl, _ = filepath.Rel(fet.TemplateDir, tpl)
 	}
 	for _, glob := range ignores {
 		if ok, _ := filepath.Match(glob, tpl); ok {
@@ -1840,7 +1840,7 @@ func (fet *Fet) CompileAll() (*sync.Map, error) {
 		relations sync.Map
 		deps      []string
 	)
-	dir := fet.templateDir
+	dir := fet.TemplateDir
 	files := []string{}
 	err := filepath.Walk(dir, func(pwd string, info os.FileInfo, err error) error {
 		tpl, _ := filepath.Rel(dir, pwd)
