@@ -575,12 +575,13 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			result = delimit("if " + compiledText)
 		} else if name == "capture" {
 			parseOptions.IsInCapture = true
-			keyName := "$fet.capture." + content
+			captureName, _ := getStringField(node, "name")
+			keyName := "$fet.capture." + captureName
 			if _, ok := (*captures)[keyName]; ok {
 				// capture name has exists
-				return "", node.halt("repeated capture name '" + content + "'")
+				return "", node.halt("repeated capture name '" + captureName + "'")
 			}
-			capVar := "$fet_capture_" + content + localNS
+			capVar := "$fet_capture_" + captureName + localNS
 			result = "{{" + capVar + " := (INJECT_CAPTURE_SCOPE . "
 			for _, varName := range currentScopes {
 				varName = strings.TrimPrefix(varName, "$")
@@ -588,7 +589,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			}
 			result += ")}}"
 			(*captures)[keyName] = capVar
-			result += "{{ define \"" + content + "\"}}"
+			result += "{{ define \"$capture_" + captureName + "\"}}"
 		}
 	case BlockFeatureType:
 		if name == "elseif" {
@@ -1813,7 +1814,7 @@ func (fet *Fet) parseFile(tpl string, blocks []*Node, extends *[]string, nested 
 			}
 			namedBlocks := map[string]*Node{}
 			for _, block := range blocks {
-				name := block.Content
+				name, _ := getStringField(block, "name")
 				if _, exists := namedBlocks[name]; !exists {
 					namedBlocks[name] = block
 				}
@@ -1821,7 +1822,7 @@ func (fet *Fet) parseFile(tpl string, blocks []*Node, extends *[]string, nested 
 			overides := map[string][]*Node{}
 			counts := map[string]int{}
 			for _, block := range curBlocks {
-				name := block.Content
+				name, _ := getStringField(block, "name")
 				if override, exists := namedBlocks[name]; exists {
 					overides[name] = override.Childs
 					counts[name] = len(block.Childs)
@@ -1832,7 +1833,7 @@ func (fet *Fet) parseFile(tpl string, blocks []*Node, extends *[]string, nested 
 			for index, total := 0, len(nl.Queues); index < total; index++ {
 				node := nl.Queues[index]
 				if node.Type == BlockStartType && node.Name == "block" {
-					blockName := node.Content
+					blockName, _ := getStringField(node, "name")
 					if count, ok := counts[blockName]; ok {
 						index += count - 1
 						replaces = overides[blockName]

@@ -295,7 +295,7 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 							} else if first == "capture" {
 								keyName := "$fet.capture." + second
 								if variable, ok := (*captures)[keyName]; ok {
-									str.WriteString("template \"" + second + "\" " + variable)
+									str.WriteString("template \"$capture_" + second + "\" " + variable)
 								} else {
 									panic("unfined capture:" + keyName)
 								}
