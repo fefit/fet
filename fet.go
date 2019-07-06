@@ -100,6 +100,7 @@ type Node struct {
 	Type         Type
 	Name         string
 	Content      string
+	ContentIndex int
 	Pwd          string
 	Props        *Props
 	IsClosed     bool
@@ -183,6 +184,199 @@ func (node *Node) AddFeature(feature *Node) {
 	node.Features = append(node.Features, feature)
 }
 
+const (
+	isWaitProp Type = iota
+	isInProp
+	isWaitEqual
+	isWaitValue
+	isInValue
+)
+
+// parseProps
+func parseProps(node *Node, defField string) (*Props, error) {
+	content := node.Content
+	quotes := node.Quotes
+	baseIndex := node.ContentIndex
+	rns := []rune(content)
+	total := len(rns)
+	qIndex := 0
+	qTotal := len(quotes)
+	statu := isWaitProp
+	isHasDefault := false
+	prop := ""
+	value := ""
+	props := []string{}
+	values := []string{}
+	addProp := func() error {
+		if contains(props, prop) {
+			return fmt.Errorf("repeated tag property:'%s'", prop)
+		}
+		if prop == defField {
+			isHasDefault = true
+		}
+		props = append(props, prop)
+		return nil
+	}
+	isQuoteOk := func(i int) (lastIndex int, err error) {
+		if qIndex < qTotal {
+			quote := quotes[qIndex]
+			startIndex := quote.StartIndex - baseIndex
+			if startIndex == i {
+				qIndex++
+				lastIndex = i + quote.EndIndex - quote.StartIndex - 1
+				return lastIndex, nil
+			}
+		}
+		return i, fmt.Errorf("wrong quote index:%d", i)
+	}
+	isOperator := func(ch string) bool {
+		return contains([]string{"!", ">", "<", "="}, ch)
+	}
+	lastQuoteIndex := -2
+	lastValueIndex := -1
+	prev := ""
+	for i := 0; i < total; i++ {
+		s := rns[i]
+		cur := string(s)
+		if unicode.IsSpace(s) {
+			if statu == isInProp {
+				statu++
+				if err := addProp(); err != nil {
+					return nil, err
+				}
+				prop = ""
+			}
+		} else {
+			switch statu {
+			case isWaitProp:
+				if s == '"' {
+					if isHasDefault {
+						return nil, fmt.Errorf("wrong default prop without property name")
+					}
+					if lastIndex, err := isQuoteOk(i); err == nil {
+						defValue := string(rns[i : lastIndex+1])
+						values = append(values, defValue)
+						i = lastIndex
+						lastQuoteIndex = lastIndex
+						statu = isWaitProp
+						isHasDefault = true
+						props = append(props, defField)
+						continue
+					} else {
+						return nil, err
+					}
+				}
+				if lastQuoteIndex+1 == i {
+					return nil, fmt.Errorf("wrong property after quote, must have a space")
+				}
+				statu++
+				prop = cur
+			case isInProp:
+				if s == '=' {
+					if err := addProp(); err != nil {
+						return nil, err
+					}
+					statu = isWaitValue
+				} else {
+					prop += cur
+				}
+			case isWaitEqual:
+				if s == '=' {
+					statu = isWaitValue
+				} else {
+					return nil, fmt.Errorf("wrong assign")
+				}
+			case isWaitValue:
+				if s == '"' {
+					//
+					if lastIndex, err := isQuoteOk(i); err == nil {
+						values = append(values, string(rns[i:lastIndex+1]))
+						i = lastIndex
+						lastQuoteIndex = lastIndex
+						statu = isWaitProp
+					} else {
+						return nil, err
+					}
+				} else {
+					value = cur
+					lastValueIndex = i
+					statu++
+				}
+			case isInValue:
+				if s == '=' {
+					if i+1 >= total {
+						return nil, fmt.Errorf("wrong property has no value")
+					}
+					next := rns[i+1]
+					if isOperator(prev) || next == '=' {
+						value += cur
+					} else {
+						all := strings.TrimSpace(string(rns[lastValueIndex:i]))
+						segs := strings.Fields(all)
+						if len(segs) < 2 {
+							return nil, fmt.Errorf("wrong value: %s", all)
+						}
+						prop = segs[len(segs)-1]
+						if err := addProp(); err != nil {
+							return nil, err
+						}
+						curRns := Runes(all)
+						curValue := strings.TrimSpace(string(curRns[:strings.LastIndex(all, prop)]))
+						values = append(values, curValue)
+						value = ""
+						statu = isWaitValue
+					}
+				} else {
+					value += cur
+				}
+			}
+		}
+		prev = cur
+	}
+	// add last value
+	if statu == isInValue && value != "" {
+		values = append(values, value)
+	}
+	if !isHasDefault {
+		return nil, fmt.Errorf("doesn't have default property of '%s'", defField)
+	}
+	count := len(props)
+	if count != len(values) {
+		return nil, fmt.Errorf("parse error: wrong properties and values counts")
+	}
+	result := Props{}
+	for i := 0; i < count; i++ {
+		curProp := props[i]
+		if !utils.IsIdentifier(curProp, types.Gofet) {
+			return nil, fmt.Errorf("wrong property name:%s", curProp)
+		}
+		result[curProp] = &Prop{
+			Raw: values[i],
+		}
+	}
+	return &result, nil
+}
+
+// getDefField
+func getStringField(node *Node, defField string) (string, error) {
+	props := *node.Props
+	if prop, ok := props[defField]; ok {
+		content := prop.Raw
+		// remove side quote
+		rns := Runes(content)
+		lastIndex := len(rns) - 1
+		start, end := rns[0], rns[lastIndex]
+		if start == '"' || end == '"' {
+			if start != end {
+				return "", fmt.Errorf("wrong string property name:'%s'", defField)
+			}
+			return string(rns[1:lastIndex]), nil
+		}
+		return content, nil
+	}
+	return "", fmt.Errorf("don't find the property name:'%s'", defField)
+}
+
 // Compile method for Node
 func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	fet := node.Fet
@@ -254,14 +448,17 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	case SingleType:
 		isInclude := name == "include"
 		if isInclude || name == "extends" {
-			tpl := getRealTplPath(node.Content, path.Join(node.Pwd, ".."), fet.TemplateDir)
+			defField := "file"
+			filename, _ := getStringField(node, defField)
+			tpl := getRealTplPath(filename, path.Join(node.Pwd, ".."), fet.TemplateDir)
 			if contains(*includes, tpl) || contains(*extends, tpl) {
 				return "", node.halt("the include or extends file '%s' has a loop dependence", tpl)
 			}
+			incLocalScopes := []string{}
 			incCaptures := &map[string]string{}
 			incOptions := &CompileOptions{
 				ParentScopes: currentScopes[:],
-				LocalScopes:  &[]string{},
+				LocalScopes:  &incLocalScopes,
 				Extends:      extends,
 				Includes:     includes,
 				Captures:     incCaptures,
@@ -274,19 +471,35 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				ctx := md5.New()
 				ctx.Write([]byte(tpl))
 				curNS := hex.EncodeToString(ctx.Sum(nil))
+				incLocalNS := "_" + curNS
 				incOptions.ParentNS = localNS
-				incOptions.LocalNS = "_" + curNS
+				incOptions.LocalNS = incLocalNS
 				// append include files to depends
 				*includes = append(*includes, tpl)
+				// append local property variables
+				for key, prop := range *node.Props {
+					if key != defField {
+						value := prop.Raw
+						if ast, expErr := exp.Parse(value); expErr == nil {
+							if compiledText, err = gen.Build(ast, genOptions, parseOptions); err != nil {
+								return "", node.halt("compile error:%s", err.Error())
+							}
+							incLocalScopes = append(incLocalScopes, "$"+key)
+							result += "{{ $" + key + incLocalNS + " := " + compiledText + "}}"
+						} else {
+							return "", toError(expErr)
+						}
+					}
+				}
 			}
 			var incResult string
 			if incResult, err = fet.compileFileContent(tpl, incOptions); err != nil {
 				return "", toError(err)
 			}
 			if isInclude {
-				result = incResult
+				result += incResult
 			}
-			// ignore extends
+			// ignore extends, special parse
 		}
 	case BlockStartType:
 		if name == "for" || name == "foreach" {
@@ -487,20 +700,16 @@ func validIfBlockCorrect(node *Node, blockName string) (errmsg string) {
 	}
 	return
 }
-func validIfOnlyOneStrParam(node *Node) (errmsg string) {
-	if len(node.Quotes) != 1 {
-		errmsg = "wrong tag \"" + node.Name + "\""
-	} else {
-		quote := node.Quotes[0]
-		all := string((*node.Context)[quote.StartIndex:quote.EndIndex])
-		if all != node.Content {
-			errmsg = "wrong file string \"" + all + "\" of " + node.Name + " tag"
-		} else {
-			content := []rune(node.Content)
-			node.Content = string(content[1 : len(content)-1])
+func validIfHasProps(node *Node, defField string, only bool) (errmsg string) {
+	if props, err := parseProps(node, defField); err == nil {
+		node.Props = props
+		if only && len(*props) > 1 {
+			return fmt.Sprintf("the tag '%s' only support property '%s', remove unnessary properties", node.Name, defField)
 		}
+	} else {
+		return err.Error()
 	}
-	return
+	return errmsg
 }
 
 // tag validators
@@ -508,7 +717,7 @@ func validIfTag(node *Node, conf *Config) (errmsg string) {
 	if node.Content == "" {
 		errmsg = "the \"if\" tag does not have a condition expression"
 	}
-	return
+	return errmsg
 }
 func validElseTag(node *Node, conf *Config) (errmsg string) {
 	if node.Content != "" {
@@ -516,7 +725,7 @@ func validElseTag(node *Node, conf *Config) (errmsg string) {
 	} else if errmsg = validIfPrevCondOk(node); errmsg == "" {
 		errmsg = validIfBlockCorrect(node, "if")
 	}
-	return
+	return errmsg
 }
 func validElseifTag(node *Node, conf *Config) (errmsg string) {
 	if node.Content == "" {
@@ -524,16 +733,16 @@ func validElseifTag(node *Node, conf *Config) (errmsg string) {
 	} else if errmsg = validIfPrevCondOk(node); errmsg == "" {
 		errmsg = validIfBlockCorrect(node, "if")
 	}
-	return
+	return errmsg
 }
 func validBlockTag(node *Node, conf *Config) (errmsg string) {
 	block := node.Parent
 	if block != nil && block.Parent != nil {
 		errmsg = "the \"block\" tag should be root tag,can not appears in \"" + block.Parent.Name + "\""
 	} else {
-		errmsg = validIfOnlyOneStrParam(node)
+		errmsg = validIfHasProps(node, "name", true)
 	}
-	return
+	return errmsg
 }
 
 func validCaptureTag(node *Node, conf *Config) (errmsg string) {
@@ -541,9 +750,9 @@ func validCaptureTag(node *Node, conf *Config) (errmsg string) {
 	if capture != nil && capture.Parent != nil {
 		errmsg = "the \"capture\" tag should be root tag,can not appears in \"" + capture.Parent.Name + "\""
 	} else {
-		errmsg = validIfOnlyOneStrParam(node)
+		errmsg = validIfHasProps(node, "name", false)
 	}
-	return
+	return errmsg
 }
 
 func validForTag(node *Node, conf *Config) (errmsg string) {
@@ -879,19 +1088,18 @@ func validForTag(node *Node, conf *Config) (errmsg string) {
 			Raw: "foreach",
 		}
 	}
-	return
+	return errmsg
 }
 func validIncludeTag(node *Node, conf *Config) (errmsg string) {
-	errmsg = validIfOnlyOneStrParam(node)
-	return
+	return validIfHasProps(node, "file", false)
 }
 func validExtendsTag(node *Node, conf *Config) (errmsg string) {
 	if node.Parent != nil {
 		errmsg = "the \"extends\" tag should be root tag,can not appears in \"" + node.Parent.Name + "\""
 	} else {
-		errmsg = validIfOnlyOneStrParam(node)
+		errmsg = validIfHasProps(node, "file", true)
 	}
-	return
+	return errmsg
 }
 
 // Validate method for Node
@@ -906,7 +1114,7 @@ func (node *Node) Validate(conf *Config) (errmsg string) {
 			errmsg = fn(node, conf)
 		}
 	}
-	return
+	return errmsg
 }
 
 // Fet struct
@@ -1350,6 +1558,7 @@ LOOP:
 						} else {
 							// validate tag
 							noSpaceIndex := ltrimIndex(&strs, markIndex+1, i)
+							node.ContentIndex = noSpaceIndex
 							node.Content = rtrim(&strs, noSpaceIndex, i)
 							if errmsg := node.Validate(fet.Config); errmsg != "" {
 								err = node.halt(errmsg)
@@ -1546,7 +1755,7 @@ func contains(arr []string, key string) bool {
 func getRealTplPath(tpl string, currentDir string, baseDir string) string {
 	if path.IsAbs(tpl) {
 		return tpl
-	} else if tpl[0] == '.' {
+	} else if ([]rune(tpl))[0] == '.' {
 		return path.Join(currentDir, tpl)
 	}
 	return path.Join(baseDir, tpl)
@@ -1593,7 +1802,8 @@ func (fet *Fet) parseFile(tpl string, blocks []*Node, extends *[]string, nested 
 				if nested == 0 {
 					*extends = append(*extends, tpl)
 				}
-				tpl = getRealTplPath(exts[0].Content, path.Join(tpl, ".."), fet.TemplateDir)
+				filename, _ := getStringField(exts[0], "file")
+				tpl = getRealTplPath(filename, path.Join(tpl, ".."), fet.TemplateDir)
 				nl, _, err := fet.parseFile(tpl, blocks, extends, nested+1)
 				*extends = append(*extends, tpl)
 				return nl, true, err
