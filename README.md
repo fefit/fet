@@ -109,6 +109,12 @@ it's more like the php template engineer smarty.
   {%$fet.now%}
   ```
 
+- special variables  
+  ```php
+  {%$ROOT%}  // will output $
+  {%$fet%} // will output .
+  ```
+
 ### Expression
   
 1. operators    
@@ -178,8 +184,10 @@ func main(){
     TemplateDir: "tmpls", //  default "templates"
     CompileDir: "views", // default "templates_c",
     Ignores: []string{"inc/*"}, // ignore compile paths,files that only will include.use filepath.Match
-    UcaseField: true, // default true, if false will not auto uppercase field name to uppercase.
+    UcaseField: false, // default false, if true will auto uppercase field name to uppercase.
     CompileOnline: false, // default false, you should compile your template files offline 
+    Glob: false, // default false, if true, will add {{define "xxx"}}{{end}} to wrap the compiled content,"xxx" is the relative pathname base on your templateDir, without the file extname.
+    AutoRoot: false, // default false,if true, if the variable is not assign in the scope, will trait it as the root field of template data, otherwise you need use '$ROOT' to index the data field.
     Mode: types.Smarty, // default types.Smarty, also can be "types.Gofet"
   }
   fet, _ := fet.New(conf)

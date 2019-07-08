@@ -1158,6 +1158,9 @@ func mergeConfig(options *Config) *Config {
 	if options.Glob {
 		conf.Glob = true
 	}
+	if options.AutoRoot {
+		conf.AutoRoot = true
+	}
 	if options.Ignores != nil {
 		conf.Ignores = options.Ignores
 	}
@@ -1190,9 +1193,9 @@ func New(config *Config) (fet *Fet, err error) {
 		matchEndTag:       buildMatchTagFn(len(rd), &rd),
 	}
 	exp := expression.New()
-	ucase := config.UcaseField
 	gen := generator.New(&generator.GenConf{
-		Ucfirst: ucase,
+		Ucfirst:  config.UcaseField,
+		AutoRoot: config.AutoRoot,
 	})
 	cwd, err := os.Getwd()
 	if err != nil {

@@ -19,6 +19,7 @@ type FetConfig struct {
 	UcaseField     bool
 	CompileOnline  bool
 	Glob           bool
+	AutoRoot       bool
 	Ignores        []string
 	Mode           Mode
 }

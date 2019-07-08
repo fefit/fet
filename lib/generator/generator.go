@@ -15,7 +15,8 @@ type Node = e.Node
 
 // GenConf of generator
 type GenConf struct {
-	Ucfirst bool
+	Ucfirst  bool
+	AutoRoot bool
 }
 
 // GenOptions for generator
@@ -161,12 +162,24 @@ func (gen *Generator) parseIdentifier(options *GenOptions, parseOptions *ParseOp
 		} else {
 			if fieldType != FuncName {
 				isRootField := fieldType == ObjectRoot || fieldType == ExpName
-				if isRootField && !utils.IsIdentifier(origName, parseConf.Mode) {
-					return fmt.Errorf("wrong identifier name: %s", origName)
+				if isRootField {
+					if !utils.IsIdentifier(origName, parseConf.Mode) {
+						return fmt.Errorf("wrong identifier name: %s", origName)
+					}
+					if !isInCapture && name == "ROOT" {
+						str.WriteString("$")
+						return nil
+					}
 				}
-				str.WriteString("$.")
 				if isInCapture {
+					str.WriteString("$.")
 					str.WriteString("Data.")
+				} else if conf.AutoRoot {
+					// trait with root data
+					str.WriteString("$.")
+				} else {
+					// trait with variables
+					str.WriteString("$")
 				}
 				if conf.Ucfirst {
 					name = strings.Title(name)
