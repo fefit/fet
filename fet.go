@@ -468,8 +468,10 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				},
 			}
 			if isInclude {
+				// use relative path, to keep the name
+				relaTpl, _ := filepath.Rel(fet.TemplateDir, tpl)
 				ctx := md5.New()
-				ctx.Write([]byte(tpl))
+				ctx.Write([]byte(relaTpl))
 				curNS := hex.EncodeToString(ctx.Sum(nil))
 				incLocalNS := "_" + curNS
 				incOptions.ParentNS = localNS
