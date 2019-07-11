@@ -134,6 +134,8 @@ it's more like the php template engineer smarty.
   binary: `0b1000`  
   scientific notation `1e10`
 
+Be careful of the `and` and `or` operators, they don't have short circuit with conditions. 
+
 ### Characters concat  
   ```php
   {% $sayHello = "world" %}

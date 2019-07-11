@@ -129,3 +129,14 @@ func TestNumberformat(t *testing.T) {
 	assert.Equal(t, numberFormat(1000000, 1, "@"), "1,000,000@0")
 	assert.Equal(t, numberFormat(1000000, 1, "@", "z"), "1z000z000@0")
 }
+
+func TestTrim(t *testing.T) {
+	chars := ` \t\n\r\0\x0B`
+	rns := []rune(chars)
+	baseChar := "abc"
+	for _, ch := range rns {
+		assert.Equal(t, baseChar, trim(baseChar+string(ch)))
+	}
+	assert.Equal(t, "bc", trim(baseChar, "a"))
+	assert.Equal(t, "c", trim(baseChar, "ab"))
+}

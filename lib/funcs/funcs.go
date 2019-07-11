@@ -99,14 +99,11 @@ func Inject() template.FuncMap {
 // Helpers funcs
 func Helpers() template.FuncMap {
 	helpers := template.FuncMap{}
+	// output
 	helpers["safe"] = safe
+	// maths
 	helpers["ceil"] = ceil
 	helpers["floor"] = floor
-	helpers["number_format"] = numberFormat
-	helpers["truncate"] = truncate
-	helpers["mrange"] = makeRange
-	helpers["concat"] = concat
-	helpers["json_encode"] = jsonEncode
 	helpers["min"] = generateFloatFunc(func(a, b float64) float64 {
 		if a > b {
 			return b
@@ -119,11 +116,25 @@ func Helpers() template.FuncMap {
 		}
 		return b
 	})
+	// format
+	helpers["number_format"] = numberFormat
+	// strings
+	helpers["truncate"] = truncate
+	helpers["concat"] = concat
+	helpers["ucwords"] = strings.Title
+	helpers["trim"] = trim
+	helpers["strtolower"] = strings.ToLower
+	helpers["strtoupper"] = strings.ToUpper
+	// assert
 	helpers["empty"] = empty
-	helpers["count"] = count
+	// date
 	helpers["now"] = now
-	helpers["strToTime"] = dateutil.StrToTime
+	helpers["strtotime"] = dateutil.StrToTime
 	helpers["date_format"] = dateutil.DateFormat
+	// helper
+	helpers["count"] = count
+	helpers["mrange"] = makeRange
+	helpers["json_encode"] = jsonEncode
 	return helpers
 }
 
@@ -142,11 +153,15 @@ func toFloat(num interface{}) (float64, error) {
 		return float64(t), nil
 	case int:
 		return float64(t), nil
+	case int16:
+		return float64(t), nil
 	case int32:
 		return float64(t), nil
 	case int64:
 		return float64(t), nil
 	case uint:
+		return float64(t), nil
+	case uint16:
 		return float64(t), nil
 	case uint32:
 		return float64(t), nil
@@ -169,13 +184,17 @@ func toInt(num interface{}) (int64, error) {
 		return t, nil
 	case float64:
 		return int64(t), nil
+	case int:
+		return int64(t), nil
 	case float32:
 		return int64(t), nil
-	case int:
+	case int16:
 		return int64(t), nil
 	case int32:
 		return int64(t), nil
 	case uint:
+		return int64(t), nil
+	case uint16:
 		return int64(t), nil
 	case uint32:
 		return int64(t), nil
@@ -199,6 +218,31 @@ func toFloatOrString(target interface{}) (interface{}, error) {
 	default:
 		return toFloat(target)
 	}
+}
+func isNumber(target interface{}) bool {
+	switch target.(type) {
+	case int, float64, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32:
+		return true
+	case complex64, complex128:
+		// ignore complex
+	}
+	return false
+}
+
+func trim(args ...interface{}) string {
+	argsNum := len(args)
+	if argsNum > 0 {
+		if target, ok := args[0].(string); ok {
+			chars := ` \t\n\r\0\x0B`
+			if argsNum == 2 {
+				if trims, ok := args[1].(string); ok {
+					chars = trims
+				}
+			}
+			return strings.Trim(target, chars)
+		}
+	}
+	return ""
 }
 
 func generateFloatFunc(fn OperatorFloatFn) (res ResultFloatFn) {
@@ -322,7 +366,6 @@ func numberFormat(args ...interface{}) string {
 		}
 	}
 	result = append(result, pres[total-1])
-
 	if decimals > 0 {
 		result = append(result, []rune(dot)...)
 		if !isInt {
@@ -533,8 +576,10 @@ func empty(target interface{}, args ...interface{}) bool {
 	switch v := value.(type) {
 	case string:
 		return v == "" || v == "0"
-	case int, float64, uint, int64, int32, int16, int8, uint64, uint32, uint16, uint8, float32:
+	case int, int32, int8, int16, int64, uint, uint8, uint16, uint32, uint64:
 		return v == 0
+	case float64, float32:
+		return v == 0.0
 	case bool:
 		return v == false
 	case nil:
