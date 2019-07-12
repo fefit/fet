@@ -169,6 +169,17 @@ Be careful of the `and` and `or` operators, they don't have short circuit with c
   - types.Gofet  
   the variable and field mustn't begin with `$`, use `for` tag for loops.  
 
+### In development
+  ```bash
+  # install command line tool `fetc`
+  go get -v github.com/fefit/fetc
+  # then init the config, will make a config file `fet.config.json`
+  fetc init
+  # then watch the file change, compile your fet template file immediately
+  fetc watch
+  ```
+
+
 ### Demo code
 ```go
 package main
@@ -185,11 +196,11 @@ func main(){
     RightDelimiter: "%}", // default "%}"
     TemplateDir: "tmpls", //  default "templates"
     CompileDir: "views", // default "templates_c",
-    Ignores: []string{"inc/*"}, // ignore compile paths,files that only will include.use filepath.Match
+    Ignores: []string{"inc/*"}, // ignore compile,paths and files that will be included and extended. use filepath.Match() method.
     UcaseField: false, // default false, if true will auto uppercase field name to uppercase.
     CompileOnline: false, // default false, you should compile your template files offline 
     Glob: false, // default false, if true, will add {{define "xxx"}}{{end}} to wrap the compiled content,"xxx" is the relative pathname base on your templateDir, without the file extname.
-    AutoRoot: false, // default false,if true, if the variable is not assign in the scope, will trait it as the root field of template data, otherwise you need use '$ROOT' to index the data field.
+    AutoRoot: false, // default false,if true, if the variable is not assign in the scope, will treat it as the root field of template data, otherwise you need use '$ROOT' to index the data field.
     Mode: types.Smarty, // default types.Smarty, also can be "types.Gofet"
   }
   fet, _ := fet.New(conf)
@@ -197,25 +208,41 @@ func main(){
   data := map[string]interface{}{
     "Hello": "World"
   }
+  // the index.html {%$ROOT.Hello%}
   // Display
   fet.Display("index.html", data, os.Stdout)
+  // will output: World
 }
+
 ```
 ### API 
-- `fet.Compile(tpl string, createFile bool) (result string, err error) `  
+
+#### static methods
+
+- `fet.LoadConf(configFile string) (*types.FetConfig, error)`    
+    
+  if you use the command line `fetc` build a config file `fet.config.json`, then you can use `fet.LoadConf` to get the config.  
+
+- `fet.New(config *types.FetConfig) (instance *Fet, error)`  
+  
+  get a fet instance.
+
+#### instance methods
+
+- `instance.Compile(tpl string, createFile bool) (result string, err error) `  
 
   compile a template file, if `createFile` is true, will create the compiled file.  
 
-- `fet.CompileAll() error`  
+- `instance.CompileAll() error`  
   
   compile all files need to compile.  
 
 
-- `fet.Display(tpl string, data interface{}, output io.Wirter) error`
+- `instance.Display(tpl string, data interface{}, output io.Wirter) error`
 
   render the parsed html code into `output`.  
 
-- `fet.Fetch(tpl string, data interface{}) (result string, err error)`
+- `instance.Fetch(tpl string, data interface{}) (result string, err error)`
 
   just get the parsed `string` code, it always use `CompileOnline` mode.  
 
@@ -223,7 +250,8 @@ func main(){
 ## Use in project
 
 1.  `compile mode`  
-    just use fet compile your template files offline, and add the FuncMap `lib/funcs/funcs.go` to `html/template` struct.
+    
+    just use fet compile your template files offline, and add the FuncMap `lib/funcs/funcs.go` to your project.
 
 2. `install mode`  
 
