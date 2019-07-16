@@ -1073,7 +1073,6 @@ func (parser *Parser) Add(s rune) error {
 			parser.RBLevel++
 		case *RightBracketToken:
 			levels := parser.CurBrSqLevel
-			fmt.Println(levels, sbl, sbsl)
 			// e.g [(][)]
 			if levels[0] != sbl {
 				return fmt.Errorf("wrong matched right bracket")
