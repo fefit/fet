@@ -33,6 +33,7 @@ func TestCompile(t *testing.T) {
 		LeftDelimiter:  "{%",
 		RightDelimiter: "%}",
 		UcaseField:     true,
+		AutoRoot:       true,
 	}
 	fet, _ := New(curConf)
 	assertOutputToBe := func(t *testing.T, tpl string, data interface{}, output string) {

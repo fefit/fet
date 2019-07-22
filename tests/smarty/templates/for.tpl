@@ -1,1 +1,2 @@
-{%for $i=0, $j = count($result); $i < $j; $i++%}{%$result[$i]%}{%/for%}
+{%$_total = count($result)%}
+{%for $i=0, $j = $_total; $i < $j; $i++%}{%$result[$i]%}{%/for%}
