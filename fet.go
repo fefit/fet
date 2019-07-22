@@ -414,6 +414,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 		// output nothing
 	case TextType:
 		// replace all html/template left delimiters to pipeline
+		result = content
 		if conf.LeftDelimiter != "{{" {
 			rule := regexp.MustCompile(`(\{{2,})`)
 			result = rule.ReplaceAllString(result, `{{"$1"}}`)
