@@ -8,9 +8,10 @@ import (
 	"unicode"
 
 	"github.com/fefit/fet/types"
+	"github.com/fefit/fet/utils"
 )
 
-// Indexs
+// Indexs alias
 type Indexs = types.Indexs
 
 // Type token
@@ -192,13 +193,13 @@ type TokenStat struct {
 	StartIndex int
 	Index      int
 	ParseIndex int
-	Logics     Flags
-	Context    *Runes
-	Values     Runes
 	RBLevel    int
 	RBSubLevel int
 	SBLevel    int
 	SBSubLevel int
+	Logics     Flags
+	Context    *Runes
+	Values     Runes
 }
 
 // Token struct
@@ -404,7 +405,7 @@ type IdentifierToken struct {
 // Add for identifiers
 func (identifier *IdentifierToken) Add(s rune) (ok bool, isComplete bool, retry bool, err error) {
 	stat := identifier.Stat
-	if isDigit := unicode.IsDigit(s); unicode.IsLetter(s) || isDigit || s == Underline || s == Dollar {
+	if isDigit := utils.IsArabicNumber(s); utils.IsEnLetter(s) || isDigit || s == Underline || s == Dollar {
 		if !identifier.IsBegin {
 			if isDigit {
 				return
@@ -557,7 +558,7 @@ func (number *NumberToken) setNumberBegin(s rune) {
 // Add for string
 func (number *NumberToken) Add(s rune) (ok bool, isComplete bool, retry bool, err error) {
 	if !number.IsBegin {
-		if isDigit := unicode.IsDigit(s); isDigit || s == Plus || s == Minus {
+		if isDigit := utils.IsArabicNumber(s); isDigit || s == Plus || s == Minus {
 			number.IsBegin = true
 			ok = true
 			stat := number.Stat
@@ -578,7 +579,7 @@ func (number *NumberToken) Add(s rune) (ok bool, isComplete bool, retry bool, er
 	logics := stat.Logics
 	// has prefix (+-)
 	if !logics["IsNumberBegin"] {
-		if !unicode.IsDigit(s) {
+		if !utils.IsArabicNumber(s) {
 			ok = false
 			retry = true
 			err = fmt.Errorf("should try a operator")
@@ -637,7 +638,7 @@ func (number *NumberToken) Add(s rune) (ok bool, isComplete bool, retry bool, er
 	isFloat := logics["IsFloat"]
 	isStillInt := !isFloat && stat.Values != nil
 	if isFloat || isStillInt {
-		if isDigit := unicode.IsDigit(s); isDigit {
+		if isDigit := utils.IsArabicNumber(s); isDigit {
 			ok = true
 			if isFloat {
 				number.Dicimals = append(number.Dicimals, s)
@@ -769,12 +770,12 @@ func (number *NumberToken) ToNumber() float64 {
 
 // OperatorToken spaces
 type OperatorToken struct {
-	Token
+	CompareIndex int
+	Name         string
+	Keyword      string
 	Maybes       []string
 	Exact        *Operator
-	Name         string
-	CompareIndex int
-	Keyword      string
+	Token
 }
 
 // Validate for OperatorToken
@@ -864,9 +865,9 @@ func (eof *EOFToken) Validate(tokens []AnyToken) (retryToken AnyToken, err error
 
 // TokenNode for translate
 type TokenNode struct {
-	Token
-	Node *Node
 	Type string
+	Node *Node
+	Token
 }
 
 // Add for nodetoken

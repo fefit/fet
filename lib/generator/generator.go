@@ -29,8 +29,8 @@ type GenOptions struct {
 // ParseOptions for generator
 type ParseOptions struct {
 	NoObjectIndex bool
-	Conf          *t.FetConfig
 	IsInCapture   bool
+	Conf          *t.FetConfig
 	Captures      *map[string]string
 }
 

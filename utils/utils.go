@@ -1,8 +1,6 @@
 package utils
 
 import (
-	"unicode"
-
 	"github.com/fefit/fet/types"
 )
 
@@ -16,10 +14,10 @@ func IsIdentifier(name string, mode types.Mode) bool {
 	for i, total := 0, len(runes); i < total; i++ {
 		cur := runes[i]
 		startWithDollar := cur == '$' && i == 0
-		if unicode.IsLetter(cur) || cur == '_' || startWithDollar {
+		if IsEnLetter(cur) || cur == '_' || startWithDollar {
 			isDollar = startWithDollar || isDollar
 			continue
-		} else if unicode.IsDigit(cur) && i > 0 {
+		} else if IsArabicNumber(cur) && i > 0 {
 			continue
 		}
 		return false
@@ -31,4 +29,14 @@ func IsIdentifier(name string, mode types.Mode) bool {
 		return isDollar
 	}
 	return !isDollar
+}
+
+// IsEnLetter Judge if is english alphabet
+func IsEnLetter(s rune) bool {
+	return (s >= 97 && s <= 122) || (s >= 65 && s <= 90)
+}
+
+// IsArabicNumber Judge if is Arabic numbers
+func IsArabicNumber(s rune) bool {
+	return s >= 48 && s <= 57
 }

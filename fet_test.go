@@ -39,7 +39,7 @@ func TestCompile(t *testing.T) {
 	assertOutputToBe := func(t *testing.T, tpl string, data interface{}, output string) {
 		result, err := fet.Fetch(tpl, data)
 		assert.Nil(t, err)
-		assert.Equal(t, output, result)
+		assert.Equal(t, output, strings.TrimSpace(result))
 	}
 	//
 	helloFet := "hello fet!"

@@ -83,34 +83,34 @@ type Position struct {
 // CompileOptions struct
 type CompileOptions struct {
 	File         string
-	ParentScopes []string
 	ParentNS     string
+	LocalNS      string
+	ParentScopes []string
 	LocalScopes  *[]string
 	Includes     *[]string
 	Extends      *[]string
 	Captures     *map[string]string
-	LocalNS      string
 	ParseOptions *generator.ParseOptions
 }
 
 // Node struct
 type Node struct {
+	IsClosed     bool
+	ContentIndex int
+	Name         string
+	Content      string
+	Pwd          string
+	GlobalScopes []string
+	LocalScopes  []string
 	Parent       *Node
 	Pair         *Node
 	Type         Type
-	Name         string
-	Content      string
-	ContentIndex int
-	Pwd          string
 	Props        *Props
-	IsClosed     bool
 	Features     []*Node
 	Childs       []*Node
 	Current      *Node
 	Quotes       []*Quote
 	Context      *Runes
-	GlobalScopes []string
-	LocalScopes  []string
 	Fet          *Fet
 	Data         *map[string][]string
 	Indexs
