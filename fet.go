@@ -127,18 +127,6 @@ type NodeList struct {
 }
 
 var (
-	defConfig = &Config{
-		LeftDelimiter:  "{%",
-		RightDelimiter: "%}",
-		CommentSymbol:  "*",
-		TemplateDir:    "templates",
-		CompileDir:     "views",
-		CompileOnline:  false,
-		UcaseField:     false,
-		Glob:           false,
-		Ignores:        []string{"inc/*"},
-		Mode:           types.Smarty,
-	}
 	supportTags = map[string]Type{
 		"include": SingleType,
 		"extends": SingleType,
@@ -1134,12 +1122,23 @@ type Fet struct {
 	tmpl        *template.Template
 }
 
-func mergeConfig(options *Config) *Config {
-	conf := &Config{}
-	*conf = *defConfig
-	if options.Mode > 0 {
-		conf.Mode = options.Mode
+// default config
+func getDefConfig() Config {
+	return Config{
+		LeftDelimiter:  "{%",
+		RightDelimiter: "%}",
+		CommentSymbol:  "*",
+		TemplateDir:    "templates",
+		CompileDir:     "views",
+		Ignores:        []string{"inc/*"},
+		Mode:           types.Smarty,
 	}
+}
+
+// merge config
+func mergeConfig(options *Config) *Config {
+	conf := getDefConfig()
+	// set default conf
 	if options.LeftDelimiter != "" {
 		conf.LeftDelimiter = options.LeftDelimiter
 	}
@@ -1152,22 +1151,24 @@ func mergeConfig(options *Config) *Config {
 	if options.CompileDir != "" {
 		conf.CompileDir = options.CompileDir
 	}
-	if options.CompileOnline {
-		conf.CompileOnline = true
+	// ignores
+	if options.Ignores != nil {
+		conf.Ignores = options.Ignores
 	}
-	if options.UcaseField {
-		conf.UcaseField = true
-	}
+	// flags
 	if options.Glob {
 		conf.Glob = true
 	}
 	if options.AutoRoot {
 		conf.AutoRoot = true
 	}
-	if options.Ignores != nil {
-		conf.Ignores = options.Ignores
+	if options.CompileOnline {
+		conf.CompileOnline = true
 	}
-	return conf
+	if options.UcaseField {
+		conf.UcaseField = true
+	}
+	return &conf
 }
 func buildMatchTagFn(len int, tag *Runes) MatchTagFn {
 	return func(strs *Runes, index int, total int) (int, bool) {
@@ -1554,7 +1555,7 @@ LOOP:
 										current := block.Current
 										if name == "block" {
 											isInBlockTag = false
-											current.Childs = queues[blockStartIndex:len(queues)]
+											current.Childs = queues[blockStartIndex:]
 										}
 										node.Pair = current
 										popGlobals(block)
@@ -1954,7 +1955,7 @@ func (fet *Fet) CheckConfig() error {
 	return nil
 }
 
-// check if directory of file does exist
+// check if directory or file does exist
 func isDorfExists(pathname string) (notexist bool, err error) {
 	if _, err := os.Stat(pathname); err != nil {
 		if os.IsNotExist(err) {
@@ -1993,14 +1994,14 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 		ParseOptions: parseOptions,
 	}
 	if writeFile {
+		relaTpl, _ := filepath.Rel(fet.TemplateDir, tplFile)
 		defer func() {
 			if err != nil {
-				fmt.Println("compile fail:", err.Error())
+				fmt.Println("compile '", relaTpl, "' fail:", err.Error())
 			} else {
-				fmt.Println("compile success")
+				fmt.Println("compile success:", relaTpl)
 			}
 		}()
-		relaTpl, _ := filepath.Rel(fet.TemplateDir, tplFile)
 		fmt.Println("compile file:", relaTpl)
 	}
 	if result, err = fet.compileFileContent(tplFile, options); err != nil {

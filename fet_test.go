@@ -8,23 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestMergeConfig(t *testing.T) {
-	curConf := &Config{
-		LeftDelimiter:  "{{",
-		RightDelimiter: "}}",
-		Mode:           types.Gofet,
-		TemplateDir:    "test_template",
-		CompileDir:     "test_compile",
-	}
-	fet, _ := New(curConf)
-	conf := fet.Config
-	assert.Equal(t, conf.LeftDelimiter, curConf.LeftDelimiter)
-	assert.Equal(t, conf.RightDelimiter, curConf.RightDelimiter)
-	assert.Equal(t, conf.Mode, curConf.Mode)
-	assert.Equal(t, conf.TemplateDir, curConf.TemplateDir)
-	assert.Equal(t, conf.CompileDir, curConf.CompileDir)
-}
-
 func TestCompile(t *testing.T) {
 	curConf := &Config{
 		Mode:           types.Smarty,

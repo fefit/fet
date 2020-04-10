@@ -135,6 +135,8 @@ func Helpers() template.FuncMap {
 	helpers["count"] = count
 	helpers["mrange"] = makeRange
 	helpers["json_encode"] = jsonEncode
+	// slice, don't add this line since go1.13
+	helpers["slice"] = slice
 	return helpers
 }
 
@@ -601,16 +603,55 @@ func count(target interface{}, args ...interface{}) int {
 		panic("the 'count' function can only have one param")
 	}
 	v := reflect.ValueOf(target)
-	kind := v.Kind()
-	if kind == reflect.Ptr {
+	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
-		kind = v.Kind()
 	}
+	kind := v.Kind()
 	if kind == reflect.Map || kind == reflect.Slice || kind == reflect.Array {
 		return v.Len()
 	} else if kind == reflect.String {
 		vi := v.String()
 		return len([]rune(vi))
 	}
-	panic("the 'count' function can only used in types 'map,array,slice,string' ")
+	panic("the 'count' function can only used for types 'map,array,slice,string' ")
+}
+
+/**
+ * slice function
+ * since go1.13 has preinclude this function,you don't need add it to the func list.
+ */
+func slice(target interface{}, args ...int) interface{} {
+	v := reflect.ValueOf(target)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	kind := v.Kind()
+	switch kind {
+	case reflect.Array, reflect.String, reflect.Slice:
+	default:
+		panic("the 'count' function can only used for types 'array,slice,string'")
+	}
+	var startIndex, endIndex, lastIndex int
+	var isSlice3 bool
+	switch len(args) {
+	case 0:
+		startIndex, endIndex = 0, v.Len()
+	case 1:
+		startIndex, endIndex = args[0], v.Len()
+	case 2:
+		startIndex, endIndex = args[0], args[1]
+	case 3:
+		if kind == reflect.String {
+			panic("can't use slice3 for string type")
+		} else {
+			isSlice3 = true
+			startIndex, endIndex, lastIndex = args[0], args[1], args[2]
+		}
+	default:
+		panic("too much arguments for slice function")
+	}
+	if isSlice3 {
+		return v.Slice3(startIndex, endIndex, lastIndex).Interface()
+	}
+	return v.Slice(startIndex, endIndex).Interface()
 }
