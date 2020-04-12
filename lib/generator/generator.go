@@ -303,7 +303,7 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 								case "templateDir":
 									str.WriteString("\"" + parseConf.TemplateDir + "\"")
 								default:
-									isStaticOk = false
+									// isStaticOk = false
 								}
 							} else if first == "capture" {
 								keyName := "$fet.capture." + second
@@ -422,9 +422,13 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 			str.WriteString(name)
 			str.WriteString(SPACE)
 		}
-		gen.wrapToFloat(node.Left, options, parseOptions, op)
+		if err = gen.wrapToFloat(node.Left, options, parseOptions, op); err != nil {
+			return err
+		}
 		str.WriteString(SPACE)
-		gen.wrapToFloat(node.Right, options, parseOptions, op)
+		if err = gen.wrapToFloat(node.Right, options, parseOptions, op); err != nil {
+			return err
+		}
 		str.WriteString(")")
 	}
 	if isNot {

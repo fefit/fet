@@ -460,7 +460,9 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				// use relative path, to keep the name
 				relaTpl, _ := filepath.Rel(fet.TemplateDir, tpl)
 				ctx := md5.New()
-				ctx.Write([]byte(relaTpl))
+				if _, wErr := ctx.Write([]byte(relaTpl)); wErr != nil {
+					return "", node.halt("include file error:%s", wErr.Error())
+				}
 				curNS := hex.EncodeToString(ctx.Sum(nil))
 				incLocalNS := "_" + curNS
 				incOptions.ParentNS = localNS
@@ -679,12 +681,7 @@ func validIfPrevCondOk(node *Node) (errmsg string) {
 	}
 	return
 }
-func validIfRoot(node *Node) (errmsg string) {
-	if node.Parent != nil {
-		errmsg = "the \"" + node.Name + "\" tag should not appears in " + node.Parent.Name
-	}
-	return
-}
+
 func validIfBlockCorrect(node *Node, blockName string) (errmsg string) {
 	pname := node.Parent.Name
 	if pname != blockName {
@@ -1064,7 +1061,7 @@ func validForTag(node *Node, conf *Config) (errmsg string) {
 	}
 	if isForEach {
 		if value == nil || list == nil {
-			return fmt.Sprintf("the 'foreach' label's value is not setted")
+			return "the 'foreach' label's value is not setted"
 		}
 		if !utils.IsIdentifier(value.Raw, conf.Mode) {
 			return fmt.Sprintf("the 'foreach' label's value '%s' is a wrong identifier", value.Raw)
@@ -1117,7 +1114,6 @@ type Fet struct {
 	TemplateDir string
 	exp         *expression.Expression
 	gen         *generator.Generator
-	datas       map[string]interface{}
 	cwd         string
 	tmpl        *template.Template
 }
@@ -1167,6 +1163,9 @@ func mergeConfig(options *Config) *Config {
 	}
 	if options.UcaseField {
 		conf.UcaseField = true
+	}
+	if options.Debug {
+		conf.Debug = true
 	}
 	return &conf
 }
@@ -1297,15 +1296,6 @@ func closeTag(node *Node, endIndex int) {
 	node.EndIndex = endIndex + 1
 }
 
-// add variable prefix
-func (fet *Fet) addVarPrefix(name string) string {
-	conf := fet.Config
-	if conf.Mode == types.Smarty {
-		return name
-	}
-	return "$" + name
-}
-
 // wrap left delimiter, right delimiter
 func (fet *Fet) wrapCode(code string) string {
 	return "{{" + code + "}}"
@@ -1346,13 +1336,7 @@ func (fet *Fet) parse(codes string, pwd string) (result *NodeList, err error) {
 		return !isSubTemplate || isInBlockTag
 	}
 	addSpecial := func(name string, node *Node) {
-		if _, ok := specials[name]; ok {
-			specials[name] = append(specials[name], node)
-		} else {
-			specials[name] = []*Node{
-				node,
-			}
-		}
+		specials[name] = append(specials[name], node)
 	}
 	popGlobals := func(block *Node) {
 		prevFeature := block.Current
@@ -1710,7 +1694,7 @@ func (fet *Fet) Display(tpl string, data interface{}, output io.Writer) (err err
 		}
 		return err
 	}
-	compileFile := fet.GetCompileFile(tpl)
+	compileFile := fet.RealCmplPath(tpl)
 	if _, err = os.Stat(compileFile); err != nil {
 		if os.IsNotExist(err) {
 			err = fmt.Errorf("the compile file '%s' is not exist", compileFile)
@@ -1769,13 +1753,24 @@ func getRealTplPath(tpl string, currentDir string, baseDir string) string {
 	return path.Join(baseDir, tpl)
 }
 
-// GetTemplateFile get the template file path
-func (fet *Fet) GetTemplateFile(tpl string) string {
+func (fet *Fet) debug(info string, args ...interface{}) {
+	if fet.Config.Debug {
+		if len(args) > 0 {
+			fmt.Printf(info, args...)
+			fmt.Println()
+		} else {
+			fmt.Println(info)
+		}
+	}
+}
+
+// RealTmplPath get the template file path
+func (fet *Fet) RealTmplPath(tpl string) string {
 	return getRealTplPath(tpl, fet.TemplateDir, fet.TemplateDir)
 }
 
-// GetCompileFile get the template file path
-func (fet *Fet) GetCompileFile(tpl string) string {
+// RealCmplPath get the template file path
+func (fet *Fet) RealCmplPath(tpl string) string {
 	if path.IsAbs(tpl) {
 		tpl, _ = filepath.Rel(fet.TemplateDir, tpl)
 	}
@@ -1836,14 +1831,13 @@ func (fet *Fet) parseFile(tpl string, blocks []*Node, extends *[]string, nested 
 				}
 			}
 			queues := []*Node{}
-			replaces := []*Node{}
 			for index, total := 0, len(nl.Queues); index < total; index++ {
 				node := nl.Queues[index]
 				if node.Type == BlockStartType && node.Name == "block" {
 					blockName, _ := getStringField(node, "name")
 					if count, ok := counts[blockName]; ok {
 						index += count - 1
-						replaces = overides[blockName]
+						replaces := overides[blockName]
 						queues = append(queues, replaces...)
 						continue
 					}
@@ -1978,8 +1972,8 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 	extends := []string{}
 	captures := map[string]string{}
 	deps := []string{}
-	tplFile := fet.GetTemplateFile(tpl)
-	compileFile := fet.GetCompileFile(tplFile)
+	tplFile := fet.RealTmplPath(tpl)
+	compileFile := fet.RealCmplPath(tplFile)
 	conf := fet.Config
 	parseOptions := &generator.ParseOptions{
 		Conf:     conf,
@@ -1997,12 +1991,12 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 		relaTpl, _ := filepath.Rel(fet.TemplateDir, tplFile)
 		defer func() {
 			if err != nil {
-				fmt.Println("compile '", relaTpl, "' fail:", err.Error())
+				fet.debug("compile %s fail:%s", relaTpl, err.Error())
 			} else {
 				fmt.Println("compile success:", relaTpl)
 			}
 		}()
-		fmt.Println("compile file:", relaTpl)
+		fet.debug("compile file:%s", relaTpl)
 	}
 	if result, err = fet.compileFileContent(tplFile, options); err != nil {
 		return "", nil, err
@@ -2033,22 +2027,64 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 	return result, deps, nil
 }
 
-// IsIgnoreFile check file if is ignore
-func (fet *Fet) IsIgnoreFile(tpl string) bool {
+// NeedIgnore check the file or directory should be ignored.
+func (fet *Fet) NeedIgnore(dorf string) bool {
 	conf := fet.Config
 	ignores := conf.Ignores
 	if len(ignores) == 0 {
 		return false
 	}
-	if path.IsAbs(tpl) {
-		tpl, _ = filepath.Rel(fet.TemplateDir, tpl)
+	if path.IsAbs(dorf) {
+		dorf, _ = filepath.Rel(fet.TemplateDir, dorf)
 	}
 	for _, glob := range ignores {
-		if ok, _ := filepath.Match(glob, tpl); ok {
+		if ok, _ := filepath.Match(glob, dorf); ok {
 			return true
 		}
 	}
 	return false
+}
+
+// get the directory's sub files should compile
+func (fet *Fet) dirCompiledFiles(dir string) ([]string, error) {
+	fileList := []string{}
+	err := filepath.Walk(dir, func(pwd string, info os.FileInfo, err error) error {
+		tpl, _ := filepath.Rel(dir, pwd)
+		if err != nil {
+			fet.debug("read compile file failure:%v", err)
+			return nil
+		}
+		if fet.NeedIgnore(tpl) {
+			return filepath.SkipDir
+		}
+		if !info.IsDir() {
+			fileList = append(fileList, pwd)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return fileList, nil
+}
+
+// GetCompileFiles get need compiled files
+func (fet *Fet) GetCompileFiles(dorf string) ([]string, error) {
+	var fileInfo os.FileInfo
+	var err error
+	fileList := []string{}
+	dorf = fet.getLastDir(dorf)
+	if fileInfo, err = os.Stat(dorf); err != nil {
+		return nil, err
+	}
+	if fileInfo.IsDir() {
+		return fet.dirCompiledFiles(dorf)
+	} else {
+		if !fet.NeedIgnore(dorf) {
+			fileList = append(fileList, dorf)
+		}
+	}
+	return fileList, nil
 }
 
 // CompileAll files
@@ -2057,19 +2093,7 @@ func (fet *Fet) CompileAll() (*sync.Map, error) {
 		relations sync.Map
 		deps      []string
 	)
-	dir := fet.TemplateDir
-	files := []string{}
-	err := filepath.Walk(dir, func(pwd string, info os.FileInfo, err error) error {
-		tpl, _ := filepath.Rel(dir, pwd)
-		if err != nil {
-			fmt.Println("read compile file failure:", err)
-			return nil
-		}
-		if !info.IsDir() && !fet.IsIgnoreFile(tpl) {
-			files = append(files, pwd)
-		}
-		return nil
-	})
+	files, err := fet.dirCompiledFiles(fet.TemplateDir)
 	if err != nil {
 		return &relations, fmt.Errorf("sorry,fail to open the compile directory:%s", err.Error())
 	}
