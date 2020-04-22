@@ -20,6 +20,7 @@ type FetConfig struct {
 	CompileOnline  bool
 	Glob           bool
 	AutoRoot       bool
+	Debug          bool
 	Ignores        []string
 	Mode           Mode
 }
