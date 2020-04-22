@@ -31,7 +31,7 @@ type CaptureData struct {
 func (lc *LoopChan) init() {
 	lc.Chan = make(chan int, 1)
 	lc.Loop = -1
-	lc.Next()
+	_, _ = lc.Next()
 }
 func (lc *LoopChan) Close() (string, error) {
 	lc.Loop = -1
@@ -261,15 +261,6 @@ func toFloatOrString(target interface{}) (interface{}, error) {
 		return toFloat(target)
 	}
 }
-func isNumber(target interface{}) bool {
-	switch target.(type) {
-	case int, float64, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32:
-		return true
-	case complex64, complex128:
-		// ignore complex
-	}
-	return false
-}
 
 func trim(args ...interface{}) string {
 	argsNum := len(args)
@@ -324,9 +315,7 @@ func toFloatNumbers(a, b interface{}) (float64, float64, error) {
 }
 
 func haltNumberErr(operator string) error {
-	err := fmt.Errorf("the operands of the '%s' operator are not numbers", operator)
-	panic(err.Error())
-	return err
+	return fmt.Errorf("the operands of the '%s' operator are not numbers", operator)
 }
 
 func generateNumberFunc(fn OperatorNumberFn, allowInt bool) (res ResultNumberFn) {
@@ -683,7 +672,7 @@ func empty(target interface{}, args ...interface{}) bool {
 	case float64, float32:
 		return v == 0.0
 	case bool:
-		return v == false
+		return !v
 	case nil:
 		return true
 	}

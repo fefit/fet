@@ -85,12 +85,7 @@ func TestTokenize(t *testing.T) {
 		assertErrorTokenize(t, "_")
 		assertErrorTokenize(t, "1a")
 		assertErrorTokenize(t, "1_")
-		assertErrorTokenize(t, "$a")
-		// wrong identifier
-		assertErrorTokenize(t, "_")
-		assertErrorTokenize(t, "1a")
-		assertErrorTokenize(t, "1_")
-		assertErrorTokenize(t, "$a")
+		assertErrorTokenize(t, ".a")
 		// wrong operators
 		assertErrorTokenize(t, ">=1")
 		assertErrorTokenize(t, `1 >= "a"`)

@@ -24,7 +24,7 @@ func TestCompile(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, output, strings.TrimSpace(result))
 	}
-	//
+	// test for syntax
 	helloFet := "hello fet!"
 	helloFetChars := strings.Split(helloFet, "")
 	t.Run("Test Smarty mode compile", func(t *testing.T) {
@@ -41,5 +41,11 @@ func TestCompile(t *testing.T) {
 		assertOutputToBe(t, "slice.tpl", map[string][]string{
 			"Result": helloFetChars,
 		}, "hello")
+		assertOutputToBe(t, "plus.tpl", nil, "5,5,5,5")
+		assertOutputToBe(t, "minus.tpl", nil, "0,0,0,0")
+		assertOutputToBe(t, "multiple.tpl", nil, "24,24,24,24")
+		assertOutputToBe(t, "divide.tpl", nil, "8,8,8,8")
+		assertOutputToBe(t, "minmax.tpl", nil, "1,2")
+		assertOutputToBe(t, "mod.tpl", nil, "1.15")
 	})
 }
