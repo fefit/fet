@@ -14,9 +14,9 @@ import (
 	"github.com/fefit/dateutil"
 )
 
-type OperatorFloatFn func(float64, float64) float64
+type OperatorNumberFn func(interface{}, interface{}) interface{}
 type OperatorIntFn func(int64, int64) int64
-type ResultFloatFn func(args ...interface{}) float64
+type ResultNumberFn func(args ...interface{}) interface{}
 type ResultIntFn func(args ...interface{}) int64
 type JSON map[string]interface{}
 type LoopChan struct {
@@ -57,24 +57,48 @@ func All() template.FuncMap {
 // Inject funcs
 func Inject() template.FuncMap {
 	injects := template.FuncMap{}
-	injects["INJECT_PLUS"] = generateFloatFunc(func(a, b float64) float64 {
-		return a + b
-	})
-	injects["INJECT_MINUS"] = generateFloatFunc(func(a, b float64) float64 {
-		return a - b
-	})
-	injects["INJECT_MULTIPLE"] = generateFloatFunc(func(a, b float64) float64 {
-		return a * b
-	})
-	injects["INJECT_DIVIDE"] = generateFloatFunc(func(a, b float64) float64 {
-		return a / b
-	})
-	injects["INJECT_MOD"] = generateFloatFunc(func(a, b float64) float64 {
-		return math.Mod(a, b)
-	})
-	injects["INJECT_POWER"] = generateFloatFunc(func(a, b float64) float64 {
-		return math.Pow(a, b)
-	})
+	injects["INJECT_PLUS"] = generateNumberFunc(func(a, b interface{}) interface{} {
+		if a, b, err := toIntNumbers(a, b); err == nil {
+			return a + b
+		} else if a, b, err := toFloatNumbers(a, b); err == nil {
+			return a + b
+		}
+		return haltNumberErr("+")
+	}, true)
+	injects["INJECT_MINUS"] = generateNumberFunc(func(a, b interface{}) interface{} {
+		if a, b, err := toIntNumbers(a, b); err == nil {
+			return a - b
+		} else if a, b, err := toFloatNumbers(a, b); err == nil {
+			return a - b
+		}
+		return haltNumberErr("-")
+	}, true)
+	injects["INJECT_MULTIPLE"] = generateNumberFunc(func(a, b interface{}) interface{} {
+		if a, b, err := toIntNumbers(a, b); err == nil {
+			return a * b
+		} else if a, b, err := toFloatNumbers(a, b); err == nil {
+			return a * b
+		}
+		return haltNumberErr("*")
+	}, true)
+	injects["INJECT_DIVIDE"] = generateNumberFunc(func(a, b interface{}) interface{} {
+		if a, b, err := toFloatNumbers(a, b); err == nil {
+			return a / b
+		}
+		return haltNumberErr("/")
+	}, false)
+	injects["INJECT_MOD"] = generateNumberFunc(func(a, b interface{}) interface{} {
+		if a, b, err := toFloatNumbers(a, b); err == nil {
+			return math.Mod(a, b)
+		}
+		return haltNumberErr("%")
+	}, false)
+	injects["INJECT_POWER"] = generateNumberFunc(func(a, b interface{}) interface{} {
+		if a, b, err := toFloatNumbers(a, b); err == nil {
+			return math.Pow(a, b)
+		}
+		return haltNumberErr("**")
+	}, false)
 	injects["INJECT_BITAND"] = generateIntFunc(func(a, b int64) int64 {
 		return a & b
 	})
@@ -104,18 +128,34 @@ func Helpers() template.FuncMap {
 	// maths
 	helpers["ceil"] = ceil
 	helpers["floor"] = floor
-	helpers["min"] = generateFloatFunc(func(a, b float64) float64 {
-		if a > b {
+	helpers["min"] = generateNumberFunc(func(a, b interface{}) interface{} {
+		if a, b, err := toIntNumbers(a, b); err == nil {
+			if a < b {
+				return a
+			}
+			return b
+		} else if a, b, err := toFloatNumbers(a, b); err == nil {
+			if a < b {
+				return a
+			}
 			return b
 		}
-		return a
-	})
-	helpers["max"] = generateFloatFunc(func(a, b float64) float64 {
-		if a > b {
-			return a
+		return fmt.Errorf("wrong arguments for 'min' method")
+	}, true)
+	helpers["max"] = generateNumberFunc(func(a, b interface{}) interface{} {
+		if a, b, err := toIntNumbers(a, b); err == nil {
+			if a > b {
+				return a
+			}
+			return b
+		} else if a, b, err := toFloatNumbers(a, b); err == nil {
+			if a > b {
+				return a
+			}
+			return b
 		}
-		return b
-	})
+		return fmt.Errorf("wrong arguments for 'min' method")
+	}, true)
 	// format
 	helpers["number_format"] = numberFormat
 	// strings
@@ -247,26 +287,86 @@ func trim(args ...interface{}) string {
 	return ""
 }
 
-func generateFloatFunc(fn OperatorFloatFn) (res ResultFloatFn) {
-	var calc ResultFloatFn
-	calc = func(args ...interface{}) float64 {
+func isInteger(target interface{}) bool {
+	switch target.(type) {
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return true
+	case complex64, complex128:
+		// ignore complex
+	}
+	return false
+}
+
+func toIntNumbers(a, b interface{}) (int64, int64, error) {
+	var err error
+	if a, ok := a.(int64); ok {
+		if b, ok := b.(int64); ok {
+			return a, b, nil
+		}
+		err = fmt.Errorf("the second argument '%v' is not an int64 type", b)
+	} else {
+		err = fmt.Errorf("the first argument '%v' is not an int64 type", a)
+	}
+	return 0, 0, err
+}
+
+func toFloatNumbers(a, b interface{}) (float64, float64, error) {
+	var err error
+	if a, ok := a.(float64); ok {
+		if b, ok := b.(float64); ok {
+			return a, b, nil
+		}
+		err = fmt.Errorf("the second argument '%v' is not a float64 type", b)
+	} else {
+		err = fmt.Errorf("the first argument '%v' is not a float64 type", a)
+	}
+	return 0.0, 0.0, err
+}
+
+func haltNumberErr(operator string) error {
+	err := fmt.Errorf("the operands of the '%s' operator are not numbers", operator)
+	panic(err.Error())
+	return err
+}
+
+func generateNumberFunc(fn OperatorNumberFn, allowInt bool) (res ResultNumberFn) {
+	var calc ResultNumberFn
+	calc = func(args ...interface{}) interface{} {
 		argsNum := len(args)
 		if argsNum <= 1 {
 			panic("wrong arguments")
 		}
 		var (
 			err    error
-			first  float64
-			second float64
+			result interface{}
 		)
 		f, s := args[0], args[1]
-		if first, err = toFloat(f); err != nil {
-			panic(err)
+		if allowInt && isInteger(f) && isInteger(s) {
+			// when both integer, do not convert to float
+			var (
+				first  int64
+				second int64
+			)
+			if first, err = toInt(f); err != nil {
+				panic(err)
+			}
+			if second, err = toInt(s); err != nil {
+				panic(err)
+			}
+			result = fn(first, second)
+		} else {
+			var (
+				first  float64
+				second float64
+			)
+			if first, err = toFloat(f); err != nil {
+				panic(err)
+			}
+			if second, err = toFloat(s); err != nil {
+				panic(err)
+			}
+			result = fn(first, second)
 		}
-		if second, err = toFloat(s); err != nil {
-			panic(err)
-		}
-		result := fn(first, second)
 		if argsNum > 2 {
 			args[1] = result
 			return calc(args[1:]...)
@@ -620,7 +720,28 @@ func count(target interface{}, args ...interface{}) int {
  * slice function
  * since go1.13 has preinclude this function,you don't need add it to the func list.
  */
-func slice(target interface{}, args ...int) interface{} {
+func toIntList(args ...interface{}) (result []int, err error) {
+	value := args[0]
+	if v, ok := value.(int); ok {
+		result = append(result, v)
+	} else {
+		var v int64
+		if v, err = toInt(value); err == nil {
+			result = append(result, int(v))
+		} else {
+			return result, err
+		}
+	}
+	if len(args) > 1 {
+		var list []int
+		if list, err = toIntList(args[1:]...); err == nil {
+			result = append(result, list...)
+		}
+	}
+	return result, err
+}
+
+func slice(target interface{}, args ...interface{}) interface{} {
 	v := reflect.ValueOf(target)
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
@@ -631,21 +752,37 @@ func slice(target interface{}, args ...int) interface{} {
 	default:
 		panic("the 'count' function can only used for types 'array,slice,string'")
 	}
-	var startIndex, endIndex, lastIndex int
-	var isSlice3 bool
+	var (
+		startIndex, endIndex, lastIndex int
+		isSlice3                        bool
+		err                             error
+		indexs                          []int
+	)
 	switch len(args) {
 	case 0:
 		startIndex, endIndex = 0, v.Len()
 	case 1:
-		startIndex, endIndex = args[0], v.Len()
+		if index, ok := args[0].(int); ok {
+			startIndex, endIndex = index, v.Len()
+		} else if index, err := toInt(args[0]); err == nil {
+			startIndex, endIndex = int(index), v.Len()
+		}
 	case 2:
-		startIndex, endIndex = args[0], args[1]
+		if indexs, err = toIntList(args...); err == nil {
+			startIndex, endIndex = indexs[0], indexs[1]
+		} else {
+			panic(err)
+		}
 	case 3:
 		if kind == reflect.String {
 			panic("can't use slice3 for string type")
 		} else {
 			isSlice3 = true
-			startIndex, endIndex, lastIndex = args[0], args[1], args[2]
+			if indexs, err = toIntList(args...); err == nil {
+				startIndex, endIndex, lastIndex = indexs[0], indexs[1], indexs[2]
+			} else {
+				panic(err)
+			}
 		}
 	default:
 		panic("too much arguments for slice function")

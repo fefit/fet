@@ -38,5 +38,8 @@ func TestCompile(t *testing.T) {
 		assertOutputToBe(t, "for.tpl", map[string][]string{
 			"Result": helloFetChars,
 		}, helloFet)
+		assertOutputToBe(t, "slice.tpl", map[string][]string{
+			"Result": helloFetChars,
+		}, "hello")
 	})
 }
