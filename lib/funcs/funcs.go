@@ -60,44 +60,53 @@ func Inject() template.FuncMap {
 	injects["INJECT_PLUS"] = generateNumberFunc(func(a, b interface{}) interface{} {
 		if a, b, err := toIntNumbers(a, b); err == nil {
 			return a + b
-		} else if a, b, err := toFloatNumbers(a, b); err == nil {
-			return a + b
 		}
-		return haltNumberErr("+")
+		if a, b, err := toFloatNumbers(a, b); err == nil {
+			return a + b
+		} else {
+			panic(makeHaltInfo("plus(+)", err))
+		}
 	}, true)
 	injects["INJECT_MINUS"] = generateNumberFunc(func(a, b interface{}) interface{} {
 		if a, b, err := toIntNumbers(a, b); err == nil {
 			return a - b
-		} else if a, b, err := toFloatNumbers(a, b); err == nil {
-			return a - b
 		}
-		return haltNumberErr("-")
+		if a, b, err := toFloatNumbers(a, b); err == nil {
+			return a - b
+		} else {
+			panic(makeHaltInfo("minus(-)", err))
+		}
 	}, true)
 	injects["INJECT_MULTIPLE"] = generateNumberFunc(func(a, b interface{}) interface{} {
 		if a, b, err := toIntNumbers(a, b); err == nil {
 			return a * b
-		} else if a, b, err := toFloatNumbers(a, b); err == nil {
-			return a * b
 		}
-		return haltNumberErr("*")
+		if a, b, err := toFloatNumbers(a, b); err == nil {
+			return a * b
+		} else {
+			panic(makeHaltInfo("multiple(*)", err))
+		}
 	}, true)
 	injects["INJECT_DIVIDE"] = generateNumberFunc(func(a, b interface{}) interface{} {
 		if a, b, err := toFloatNumbers(a, b); err == nil {
 			return a / b
+		} else {
+			panic(makeHaltInfo("divide(/)", err))
 		}
-		return haltNumberErr("/")
 	}, false)
 	injects["INJECT_MOD"] = generateNumberFunc(func(a, b interface{}) interface{} {
 		if a, b, err := toFloatNumbers(a, b); err == nil {
 			return math.Mod(a, b)
+		} else {
+			panic(makeHaltInfo("mod(%)", err))
 		}
-		return haltNumberErr("%")
 	}, false)
 	injects["INJECT_POWER"] = generateNumberFunc(func(a, b interface{}) interface{} {
 		if a, b, err := toFloatNumbers(a, b); err == nil {
 			return math.Pow(a, b)
+		} else {
+			panic(makeHaltInfo("power(**)", err))
 		}
-		return haltNumberErr("**")
 	}, false)
 	injects["INJECT_BITAND"] = generateIntFunc(func(a, b int64) int64 {
 		return a & b
@@ -134,13 +143,15 @@ func Helpers() template.FuncMap {
 				return a
 			}
 			return b
-		} else if a, b, err := toFloatNumbers(a, b); err == nil {
+		}
+		if a, b, err := toFloatNumbers(a, b); err == nil {
 			if a < b {
 				return a
 			}
 			return b
+		} else {
+			panic(makeHaltInfo("min", err))
 		}
-		return fmt.Errorf("wrong arguments for 'min' method")
 	}, true)
 	helpers["max"] = generateNumberFunc(func(a, b interface{}) interface{} {
 		if a, b, err := toIntNumbers(a, b); err == nil {
@@ -148,13 +159,15 @@ func Helpers() template.FuncMap {
 				return a
 			}
 			return b
-		} else if a, b, err := toFloatNumbers(a, b); err == nil {
+		}
+		if a, b, err := toFloatNumbers(a, b); err == nil {
 			if a > b {
 				return a
 			}
 			return b
+		} else {
+			panic(makeHaltInfo("max", err))
 		}
-		return fmt.Errorf("wrong arguments for 'min' method")
 	}, true)
 	// format
 	helpers["number_format"] = numberFormat
@@ -314,8 +327,8 @@ func toFloatNumbers(a, b interface{}) (float64, float64, error) {
 	return 0.0, 0.0, err
 }
 
-func haltNumberErr(operator string) error {
-	return fmt.Errorf("the operands of the '%s' operator are not numbers", operator)
+func makeHaltInfo(name string, err error) string {
+	return fmt.Sprintf("'%s' method params error:%s", name, err.Error())
 }
 
 func generateNumberFunc(fn OperatorNumberFn, allowInt bool) (res ResultNumberFn) {
@@ -489,28 +502,36 @@ func truncate(content string, length int) string {
 	return string(cont[:length]) + suffix
 }
 
-func makeRange(start, end float64, args ...interface{}) []float64 {
+func makeRange(s, e interface{}, args ...interface{}) []float64 {
 	step := 1.0
-	if len(args) == 1 {
-		if curStep, ok := args[0].(float64); ok && curStep != 0.0 {
-			step = curStep
+	if start, err := toFloat(s); err != nil {
+		panic(makeHaltInfo("mrange", err))
+	} else {
+		if end, err := toFloat(e); err != nil {
+			panic(makeHaltInfo("mrange", err))
+		} else {
+			if len(args) == 1 {
+				if curStep, ok := args[0].(float64); ok && curStep != 0.0 {
+					step = curStep
+				}
+			}
+			result := []float64{
+				start,
+			}
+			total := math.Floor((end - start) / step)
+			needLast := true
+			if start+total*step == end {
+				needLast = false
+			}
+			for i := 1.0; i <= total; i++ {
+				result = append(result, start+step*i)
+			}
+			if needLast {
+				result = append(result, end)
+			}
+			return result
 		}
 	}
-	result := []float64{
-		start,
-	}
-	total := math.Floor((end - start) / step)
-	needLast := true
-	if start+total*step == end {
-		needLast = false
-	}
-	for i := 1.0; i <= total; i++ {
-		result = append(result, start+step*i)
-	}
-	if needLast {
-		result = append(result, end)
-	}
-	return result
 }
 
 func capture(data interface{}, variables ...interface{}) CaptureData {
