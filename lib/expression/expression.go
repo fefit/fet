@@ -152,15 +152,6 @@ func typeOf(token Any) string {
 	return string(rns[total+1:])
 }
 
-func isBracket(token AnyToken) bool {
-	switch token.(type) {
-	case *LeftBracketToken, *RightBracketToken, *LeftSquareBracketToken, *RightSquareBracketToken:
-		return true
-	default:
-		return false
-	}
-}
-
 func getNoSpaceTokens(tokens []AnyToken, num int) (isPrevSpace bool, result []AnyToken) {
 	isTwo := num == 2
 	if num != 1 && !isTwo {
@@ -761,7 +752,11 @@ func (number *NumberToken) ToNumber() float64 {
 		cur, _ := strconv.ParseInt(values, number.Base, 64)
 		num = float64(cur)
 	} else {
-		num, _ = strconv.ParseFloat(values, 10)
+		if logics["IsFloat"] {
+			num, _ = strconv.ParseFloat(values+"."+string(number.Dicimals), 10)
+		} else {
+			num, _ = strconv.ParseFloat(values, 10)
+		}
 		if number.Power != nil {
 			power = number.Power.ToNumber()
 		}
@@ -1113,14 +1108,12 @@ func (parser *Parser) Add(s rune) error {
 				parser.Current = retryToken
 				// next must has a space
 				if token, ok := retryToken.(*OperatorToken); ok {
-					var validNext ValidateNextFn
-					validNext = func(t AnyToken) error {
+					parser.NextMustBe = func(t AnyToken) error {
 						if _, isSpace := t.(*SpaceToken); isSpace {
 							return nil
 						}
 						return fmt.Errorf("the keyword operator '%s' must have a right space", token.Keyword)
 					}
-					parser.NextMustBe = validNext
 					parser.NextValids++
 				}
 			}
