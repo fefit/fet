@@ -525,11 +525,12 @@ func (str *StringToken) Validate(tokens []AnyToken) (retryToken AnyToken, err er
 		ops := operatorList.Values
 		if value, exists := ops[name]; exists {
 			name = string(value.Runes)
-			if name == "+" || name == "!=" || name == "==" || name == ":" || name == "&&" || name == "||" {
+			// concat(+), function argument list(,:), compare(!=, ==), logic(&&, ||)
+			if name == "+" || name == "," || (name == "!=" || name == "==" || name == "&&" || name == "||") || name == ":" {
 				return
 			}
 		}
-		return nil, fmt.Errorf("can not use operator %v with strings", name)
+		return nil, fmt.Errorf("can not use operator '%v' with strings", name)
 	default:
 		return nil, fmt.Errorf("can not use string")
 	}
