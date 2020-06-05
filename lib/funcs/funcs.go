@@ -14,15 +14,28 @@ import (
 	"github.com/fefit/dateutil"
 )
 
+// OperatorNumberFn func for operate numbers
 type OperatorNumberFn func(interface{}, interface{}) interface{}
+
+// OperatorIntFn func for int types
 type OperatorIntFn func(int64, int64) int64
+
+// ResultNumberFn wrap the OperatorNumberFn
 type ResultNumberFn func(args ...interface{}) interface{}
+
+// ResultIntFn wrap the OperatorIntFn
 type ResultIntFn func(args ...interface{}) int64
+
+// JSON alias a json type
 type JSON map[string]interface{}
+
+// LoopChan used for "for" blocks
 type LoopChan struct {
 	Chan chan int
 	Loop int
 }
+
+// CaptureData used for Capture
 type CaptureData struct {
 	Variables map[string]interface{}
 	Data      interface{}
@@ -33,11 +46,15 @@ func (lc *LoopChan) init() {
 	lc.Loop = -1
 	_, _ = lc.Next()
 }
+
+// Close close the loop chan
 func (lc *LoopChan) Close() (string, error) {
 	lc.Loop = -1
 	close(lc.Chan)
 	return "", nil
 }
+
+// Next goto the next step
 func (lc *LoopChan) Next() (string, error) {
 	lc.Loop++
 	lc.Chan <- lc.Loop
@@ -61,51 +78,51 @@ func Inject() template.FuncMap {
 		if a, b, err := toIntNumbers(a, b); err == nil {
 			return a + b
 		}
-		if a, b, err := toFloatNumbers(a, b); err == nil {
-			return a + b
-		} else {
+		if a, b, err := toFloatNumbers(a, b); err != nil {
 			panic(makeHaltInfo("plus(+)", err))
+		} else {
+			return a + b
 		}
 	}, true)
 	injects["INJECT_MINUS"] = generateNumberFunc(func(a, b interface{}) interface{} {
 		if a, b, err := toIntNumbers(a, b); err == nil {
 			return a - b
 		}
-		if a, b, err := toFloatNumbers(a, b); err == nil {
-			return a - b
-		} else {
+		if a, b, err := toFloatNumbers(a, b); err != nil {
 			panic(makeHaltInfo("minus(-)", err))
+		} else {
+			return a - b
 		}
 	}, true)
 	injects["INJECT_MULTIPLE"] = generateNumberFunc(func(a, b interface{}) interface{} {
 		if a, b, err := toIntNumbers(a, b); err == nil {
 			return a * b
 		}
-		if a, b, err := toFloatNumbers(a, b); err == nil {
-			return a * b
-		} else {
+		if a, b, err := toFloatNumbers(a, b); err != nil {
 			panic(makeHaltInfo("multiple(*)", err))
+		} else {
+			return a * b
 		}
 	}, true)
 	injects["INJECT_DIVIDE"] = generateNumberFunc(func(a, b interface{}) interface{} {
-		if a, b, err := toFloatNumbers(a, b); err == nil {
-			return a / b
-		} else {
+		if a, b, err := toFloatNumbers(a, b); err != nil {
 			panic(makeHaltInfo("divide(/)", err))
+		} else {
+			return a / b
 		}
 	}, false)
 	injects["INJECT_MOD"] = generateNumberFunc(func(a, b interface{}) interface{} {
-		if a, b, err := toFloatNumbers(a, b); err == nil {
-			return math.Mod(a, b)
-		} else {
+		if a, b, err := toFloatNumbers(a, b); err != nil {
 			panic(makeHaltInfo("mod(%)", err))
+		} else {
+			return math.Mod(a, b)
 		}
 	}, false)
 	injects["INJECT_POWER"] = generateNumberFunc(func(a, b interface{}) interface{} {
-		if a, b, err := toFloatNumbers(a, b); err == nil {
-			return math.Pow(a, b)
-		} else {
+		if a, b, err := toFloatNumbers(a, b); err != nil {
 			panic(makeHaltInfo("power(**)", err))
+		} else {
+			return math.Pow(a, b)
 		}
 	}, false)
 	injects["INJECT_BITAND"] = generateIntFunc(func(a, b int64) int64 {
@@ -144,13 +161,13 @@ func Helpers() template.FuncMap {
 			}
 			return b
 		}
-		if a, b, err := toFloatNumbers(a, b); err == nil {
+		if a, b, err := toFloatNumbers(a, b); err != nil {
+			panic(makeHaltInfo("min", err))
+		} else {
 			if a < b {
 				return a
 			}
 			return b
-		} else {
-			panic(makeHaltInfo("min", err))
 		}
 	}, true)
 	helpers["max"] = generateNumberFunc(func(a, b interface{}) interface{} {
@@ -160,13 +177,13 @@ func Helpers() template.FuncMap {
 			}
 			return b
 		}
-		if a, b, err := toFloatNumbers(a, b); err == nil {
+		if a, b, err := toFloatNumbers(a, b); err != nil {
+			panic(makeHaltInfo("max", err))
+		} else {
 			if a > b {
 				return a
 			}
 			return b
-		} else {
-			panic(makeHaltInfo("max", err))
 		}
 	}, true)
 	// format
@@ -188,6 +205,7 @@ func Helpers() template.FuncMap {
 	helpers["count"] = count
 	helpers["mrange"] = makeRange
 	helpers["json_encode"] = jsonEncode
+	helpers["json_decode"] = jsonDecode
 	// slice, don't add this line since go1.13
 	helpers["slice"] = slice
 	return helpers
@@ -567,7 +585,7 @@ func stringify(target interface{}) template.HTML {
 	return template.HTML(result)
 }
 
-func jsonEncode(str string, args ...interface{}) JSON {
+func jsonDecode(str string, args ...interface{}) JSON {
 	if len(args) == 1 {
 		fns := template.FuncMap{
 			"stringify": stringify,
@@ -588,6 +606,14 @@ func jsonEncode(str string, args ...interface{}) JSON {
 		panic(err)
 	}
 	return result
+}
+
+func jsonEncode(data interface{}, args ...interface{}) string {
+	b, err := json.Marshal(data)
+	if err != nil {
+		panic(err)
+	}
+	return string(b[:])
 }
 
 func concat(str string, args ...interface{}) string {

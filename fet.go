@@ -379,6 +379,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	addVarPrefix := "$"
 	isSmartyMode := conf.Mode == types.Smarty
 	compiledText := ""
+	noDelimit := false
 	if isSmartyMode {
 		addVarPrefix = ""
 	}
@@ -424,15 +425,19 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			if contains(currentScopes, name) {
 				symbol = " = "
 			}
-			if compiledText, err = gen.Build(ast, genOptions, parseOptions); err != nil {
+			if compiledText, noDelimit, err = gen.Build(ast, genOptions, parseOptions); err != nil {
 				return "", node.halt("compile error:%s", err.Error())
 			}
 			result = delimit(addVarPrefix + name + localNS + symbol + compiledText)
 		} else {
-			if compiledText, err = gen.Build(ast, genOptions, parseOptions); err != nil {
+			if compiledText, noDelimit, err = gen.Build(ast, genOptions, parseOptions); err != nil {
 				return "", node.halt("compile error:%s", err.Error())
 			}
-			result = delimit(compiledText)
+			if noDelimit {
+				result = compiledText
+			} else {
+				result = delimit(compiledText)
+			}
 		}
 	case SingleType:
 		isInclude := name == "include"
@@ -474,7 +479,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 					if key != defField {
 						value := prop.Raw
 						if ast, expErr := exp.Parse(value); expErr == nil {
-							if compiledText, err = gen.Build(ast, genOptions, parseOptions); err != nil {
+							if compiledText, noDelimit, err = gen.Build(ast, genOptions, parseOptions); err != nil {
 								return "", node.halt("compile error:%s", err.Error())
 							}
 							incLocalScopes = append(incLocalScopes, "$"+key)
@@ -503,7 +508,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				if expErr != nil {
 					return "", toError(expErr)
 				}
-				compiledText, err = gen.Build(ast, genOptions, parseOptions)
+				compiledText, noDelimit, err = gen.Build(ast, genOptions, parseOptions)
 				if err != nil {
 					return "", node.halt("parse 'foreach' error:%s", err.Error())
 				}
@@ -526,7 +531,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 					if expErr != nil {
 						return "", toError(expErr)
 					}
-					compiledText, err = gen.Build(ast, genOptions, parseOptions)
+					compiledText, noDelimit, err = gen.Build(ast, genOptions, parseOptions)
 					if err != nil {
 						return "", node.halt("parse 'for' error:%s", err.Error())
 					}
@@ -544,7 +549,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 				if expErr != nil {
 					return "", toError(expErr)
 				}
-				compiledText, err = gen.Build(ast, genOptions, parseOptions)
+				compiledText, noDelimit, err = gen.Build(ast, genOptions, parseOptions)
 				if err != nil {
 					return "", node.halt("parse 'for' statement error:%s", err.Error())
 				}
@@ -561,7 +566,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			if expErr != nil {
 				return "", toError(expErr)
 			}
-			compiledText, err = gen.Build(ast, genOptions, parseOptions)
+			compiledText, noDelimit, err = gen.Build(ast, genOptions, parseOptions)
 			if err != nil {
 				return "", node.halt("parse 'if' statement error:%s", err.Error())
 			}
@@ -590,7 +595,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			if expErr != nil {
 				return "", toError(expErr)
 			}
-			compiledText, err = gen.Build(ast, genOptions, parseOptions)
+			compiledText, noDelimit, err = gen.Build(ast, genOptions, parseOptions)
 			if err != nil {
 				return "", node.halt("parse 'if' statement error:%s", err.Error())
 			}
@@ -617,7 +622,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 					if expErr != nil {
 						return "", toError(expErr)
 					}
-					compiledText, err = gen.Build(ast, genOptions, parseOptions)
+					compiledText, noDelimit, err = gen.Build(ast, genOptions, parseOptions)
 					if err != nil {
 						return "", node.halt("parse 'for' loop error:%s", err.Error())
 					}
@@ -626,7 +631,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 						return "", toError(expErr)
 					}
 					var code string
-					if code, err = gen.Build(ast, genOptions, parseOptions); err != nil {
+					if code, noDelimit, err = gen.Build(ast, genOptions, parseOptions); err != nil {
 						return "", node.halt("parse 'for' loops error:%s", err.Error())
 					}
 					compiledText += " = " + code

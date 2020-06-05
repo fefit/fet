@@ -94,14 +94,14 @@ var (
 )
 
 // Build for code
-func (gen *Generator) Build(node *Node, options *GenOptions, parseOptions *ParseOptions) (string, error) {
+func (gen *Generator) Build(node *Node, options *GenOptions, parseOptions *ParseOptions) (result string, noDelimit bool, err error) {
 	// conf := gen.Conf
 	var str strings.Builder
 	options.Str = &str
-	if err := gen.parseRecursive(node, options, parseOptions); err != nil {
-		return "", err
+	if noDelimit, err = gen.parseRecursive(node, options, parseOptions); err != nil {
+		return "", noDelimit, err
 	}
-	return str.String(), nil
+	return str.String(), noDelimit, nil
 }
 
 func (gen *Generator) wrapToFloat(node *Node, options *GenOptions, parseOptions *ParseOptions, op string) error {
@@ -119,7 +119,7 @@ func (gen *Generator) wrapToFloat(node *Node, options *GenOptions, parseOptions 
 		str.WriteString(fn)
 		str.WriteString(SPACE)
 	}
-	err := gen.parseRecursive(node, options, parseOptions)
+	_, err := gen.parseRecursive(node, options, parseOptions)
 	if isNative {
 		str.WriteString(")")
 	}
@@ -191,7 +191,7 @@ func (gen *Generator) parseIdentifier(options *GenOptions, parseOptions *ParseOp
 	return nil
 }
 
-func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptions *ParseOptions) (err error) {
+func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptions *ParseOptions) (noDelimit bool, err error) {
 	str, exp := options.Str, options.Exp
 	noObjectIndex, parseConf, captures := parseOptions.NoObjectIndex, parseOptions.Conf, parseOptions.Captures
 	curType := node.Type
@@ -220,8 +220,8 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 					express := string(runes[pos.StartIndex+1 : pos.EndIndex-1])
 					ast, _ := exp.Parse(express)
 					var inner string
-					if inner, err = gen.Build(ast, options, parseOptions); err != nil {
-						return err
+					if inner, noDelimit, err = gen.Build(ast, options, parseOptions); err != nil {
+						return noDelimit, err
 					}
 					str.WriteString(inner)
 					i = pos.EndIndex + 1
@@ -245,7 +245,7 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 			if name == "$fet" {
 				str.WriteString(".")
 			} else if err = gen.parseIdentifier(options, parseOptions, name, ExpName); err != nil {
-				return err
+				return noDelimit, err
 			}
 		}
 	} else if curType == "object" {
@@ -287,6 +287,11 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 							switch names[0] {
 							case "now":
 								str.WriteString("now")
+							case "debug":
+								noDelimit = true
+								if parseConf.Debug {
+									str.WriteString(`<script>(function(){try{var data = JSON.parse("{{json_encode $}}");console.log(data);window.__DEBUG__=data;}catch(e){}})();</script>`)
+								}
 							default:
 								panic("unsupport static variable $fet." + names[0])
 							}
@@ -322,7 +327,7 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 				} else {
 					addIndexFn()
 					if err = gen.parseIdentifier(options, parseOptions, string(t.Stat.Values), ObjectRoot); err != nil {
-						return err
+						return noDelimit, err
 					}
 					isParsed = true
 				}
@@ -330,8 +335,8 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 		}
 		if !isParsed {
 			addIndexFn()
-			if err = gen.parseRecursive(root, options, parseOptions); err != nil {
-				return err
+			if noDelimit, err = gen.parseRecursive(root, options, parseOptions); err != nil {
+				return noDelimit, err
 			}
 		}
 		if !isStatic {
@@ -363,17 +368,17 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 							str.WriteString("\"")
 						} else {
 							if err = gen.parseIdentifier(options, parseOptions, ident, ObjectField); err != nil {
-								return err
+								return noDelimit, err
 							}
 						}
 					} else {
-						if err = gen.parseRecursive(cur, options, parseOptions); err != nil {
-							return err
+						if noDelimit, err = gen.parseRecursive(cur, options, parseOptions); err != nil {
+							return noDelimit, err
 						}
 					}
 				} else {
-					if err = gen.parseRecursive(cur, options, parseOptions); err != nil {
-						return err
+					if noDelimit, err = gen.parseRecursive(cur, options, parseOptions); err != nil {
+						return noDelimit, err
 					}
 				}
 			}
@@ -392,7 +397,7 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 			if t, ok := root.Token.(*e.IdentifierToken); ok {
 				name := string(t.Stat.Values)
 				if err = gen.parseIdentifier(options, parseOptions, name, FuncName); err != nil {
-					return err
+					return noDelimit, err
 				}
 				if _, ok := NoNeedIndexFuncs[name]; ok {
 					parseOptions.NoObjectIndex = true
@@ -401,8 +406,8 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 			}
 		}
 		if !isParsed {
-			if err = gen.parseRecursive(root, options, parseOptions); err != nil {
-				return err
+			if noDelimit, err = gen.parseRecursive(root, options, parseOptions); err != nil {
+				return noDelimit, err
 			}
 		}
 		str.WriteString(SPACE)
@@ -410,8 +415,8 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 			if i > 0 {
 				str.WriteString(SPACE)
 			}
-			if err = gen.parseRecursive(args[i], options, parseOptions); err != nil {
-				return err
+			if noDelimit, err = gen.parseRecursive(args[i], options, parseOptions); err != nil {
+				return noDelimit, err
 			}
 		}
 		str.WriteString(")")
@@ -423,18 +428,18 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 			str.WriteString(SPACE)
 		}
 		if err = gen.wrapToFloat(node.Left, options, parseOptions, op); err != nil {
-			return err
+			return noDelimit, err
 		}
 		str.WriteString(SPACE)
 		if err = gen.wrapToFloat(node.Right, options, parseOptions, op); err != nil {
-			return err
+			return noDelimit, err
 		}
 		str.WriteString(")")
 	}
 	if isNot {
 		str.WriteString(")")
 	}
-	return nil
+	return noDelimit, nil
 }
 
 // New for Generator

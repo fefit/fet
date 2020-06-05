@@ -140,3 +140,14 @@ func TestTrim(t *testing.T) {
 	assert.Equal(t, "bc", trim(baseChar, "a"))
 	assert.Equal(t, "c", trim(baseChar, "ab"))
 }
+
+func TestJsonEncode(t *testing.T) {
+	m := map[string]interface{}{
+		"hello": "world",
+	}
+	a := []int{1, 2, 3}
+	s := "it's a string"
+	assert.Equal(t, `{"hello":"world"}`, jsonEncode(m))
+	assert.Equal(t, `[1,2,3]`, jsonEncode(a))
+	assert.Equal(t, `"`+s+`"`, jsonEncode(s))
+}
