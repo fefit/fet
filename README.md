@@ -1,6 +1,6 @@
 # FET
 
-[![tag](https://img.shields.io/github/v/tag/fefit/fet.svg?sort=semver)](./tags)
+[![tag](https://img.shields.io/github/v/tag/fefit/fet.svg?sort=semver)](https://github.com/fefit/fet/tags)
 [![Build Status](https://travis-ci.org/fefit/fet.svg?branch=master)](https://travis-ci.org/github/fefit/fet)
 [![codecov](https://codecov.io/gh/fefit/fet/branch/master/graph/badge.svg)](https://codecov.io/gh/fefit/fet)
 
