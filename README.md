@@ -1,5 +1,9 @@
 # FET
 
+[![tag](https://img.shields.io/github/v/tag/fefit/fet.svg?sort=semver)](./tags)
+[![Build Status](https://travis-ci.org/fefit/fet.svg?branch=master)](https://travis-ci.org/github/fefit/fet)
+[![codecov](https://codecov.io/gh/fefit/fet/branch/master/graph/badge.svg)](https://codecov.io/gh/fefit/fet)
+
 FET is a go template engineer that can translate code to `html/template` code.
 
 ## Why FET
