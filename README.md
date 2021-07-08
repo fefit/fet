@@ -143,7 +143,7 @@ it's more likely to the php template engine smarty.
     |`ge`| `>=`| `a >= b` <=> `a ge b`|
     |`lt`| `<`| `a < b` <=> `a lt b`|
     |`le`| `<=`| `a <= b` <=> `a le b`|
-    | `bitor` | `\|` | `a \| b` <=>  `a bitor b` |
+    | `bitor` | - | `a bitor b` |
     | - | `&` | `a & b`|
     | - | `^` | `a ^ b`| 
     | - | `+` | `a + b`| 
