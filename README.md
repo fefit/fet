@@ -1,7 +1,7 @@
 # FET
 
 [![tag](https://img.shields.io/github/v/tag/fefit/fet.svg?sort=semver)](https://github.com/fefit/fet/tags)
-[![Build Status](https://travis-ci.org/fefit/fet.svg?branch=master)](https://travis-ci.org/github/fefit/fet)
+[![Build Status](https://travis-ci.com/fefit/fet.svg?branch=master)](https://travis-ci.com/github/fefit/fet)
 [![codecov](https://codecov.io/gh/fefit/fet/branch/master/graph/badge.svg)](https://codecov.io/gh/fefit/fet)
 
 FET is a golang template engine that can tranlate smarty like template code into golang `html/template`.
@@ -101,9 +101,12 @@ it's more likely to the php template engine smarty.
 - capture
 
   ```php
-  {%capture "hello"%}
-  {%/capture%}
-  {%$fet.capture.hello%}
+  {%capture "hello"%}hello{%/capture%}
+  {%if true%}
+    {%$fet.capture.hello%},wolrd!
+  {%else%}
+    just {%$fet.capture.hello%}!
+  {%/if%}
   ```
 
 - static variables
@@ -177,8 +180,11 @@ use ` `` ` for variable or expression in strings. do not use `+`.
 - Math  
   `min` `max` `floor` `ceil`
 
-- Helpers  
-  `number_format` `truncate`
+- Formats  
+  `number_format` 
+  
+- Strings 
+  `truncate` `concat` `ucwords`
 
 - Assert  
   `empty`
