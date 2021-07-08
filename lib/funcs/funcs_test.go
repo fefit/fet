@@ -132,13 +132,14 @@ func TestNumberformat(t *testing.T) {
 
 func TestTrim(t *testing.T) {
 	chars := ` \t\n\r\0\x0B`
-	rns := []rune(chars)
 	baseChar := "abc"
-	for _, ch := range rns {
+	for _, ch := range chars {
 		assert.Equal(t, baseChar, trim(baseChar+string(ch)))
 	}
 	assert.Equal(t, "bc", trim(baseChar, "a"))
 	assert.Equal(t, "c", trim(baseChar, "ab"))
+	assert.Equal(t, "b", trim(" ab c ", " ac"))
+	assert.Equal(t, "", trim(1))
 }
 
 func TestJsonEncode(t *testing.T) {

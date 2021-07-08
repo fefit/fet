@@ -4,16 +4,18 @@
 [![Build Status](https://travis-ci.org/fefit/fet.svg?branch=master)](https://travis-ci.org/github/fefit/fet)
 [![codecov](https://codecov.io/gh/fefit/fet/branch/master/graph/badge.svg)](https://codecov.io/gh/fefit/fet)
 
-FET is a go template engineer that can translate code to `html/template` code.
+FET is a golang template engine that can tranlate smarty like template code into golang `html/template`.
 
 ## Why FET
 
-FET means Friendly, Easily for Templating.`html/template` has a basic support for templating, but it's not easy to use, so you need FET.
+FET means Friendly, Easily for Template code. The official golang package `html/template` is a fully functional template engine, but it has a few defects with user experience, so you need FET.
 
-- Expression support
+### Features
+
+- Expression logics
 - Use `incldue` with defined variables scopes
 - Use `extends` inherit base template with defined variables scopes
-- Extends support for `for` loop, e.g
+- Limited support for `for` and `capture` 
 
 ## Document
 
@@ -23,7 +25,7 @@ FET means Friendly, Easily for Templating.`html/template` has a basic support fo
 
 ## Usage
 
-it's more like the php template engineer smarty.
+it's more likely to the php template engine smarty.
 
 - inherit
 
@@ -42,7 +44,7 @@ it's more like the php template engineer smarty.
 - include
 
   ```php
-  {%include "header.html"%}
+  {%include file="header.html" var=1%}
   ```
 
 - loop, do not support keyword `break` `continue`
@@ -124,26 +126,44 @@ it's more like the php template engineer smarty.
 
 ### Expression
 
-1. operators  
-   `+ - * / % ! ** == >= <= != && || & ^`
+1. operators: You can either use the keyword operator or the punctuation.
 
-2. keyword operators  
-   `and` && `or` || `not` ! `eq` == `ne` != `gt` > `ge` >= `lt` < `le` <=  
-   `bitor` for "|"
+  
+    | keyword  | punctuation  | example |
+    |---|---|---|
+    |  `and` | `&&`  | `1 && 2`  <=>  `1 and 2` |
+    |  `or` | `\|\|`   | `1 \|\| 2` <=> `1 or 2`|
+    |  `not` | `!`  | `!a` <=> `not a`|
+    |`eq`| `==`| `a == b` <=> `a eq b`|
+    |  `ne` | `!=`  | `a != b` <=> `a ne b`|
+    |`gt`| `>`| `a > b` <=> `a gt b`|
+    |`ge`| `>=`| `a >= b` <=> `a ge b`|
+    |`lt`| `<`| `a < b` <=> `a lt b`|
+    |`le`| `<=`| `a <= b` <=> `a le b`|
+    | `bitor` | `\|` | `a \| b` <=>  `a bitor b` |
+    | - | `&` | `a & b`|
+    | - | `^` | `a ^ b`| 
+    | - | `+` | `a + b`| 
+    | - | `-` | `a - b`| 
+    | - | `*` | `a * b`| 
+    | - | `/` | `a / b`| 
+    | - | `%` | `a % b`| 
+    | - | `**` | `a ** b`|
 
-3. pipe  
+  
+    Be careful of the `and` and `or` operators, they don't have short circuit with conditions.
+
+2. pipe  
    `|` pipeline funcs  
-   `:` set arguments for pipeline funcs
+   `:` set parameters for pipeline funcs
 
-4. numbers  
+3. numbers  
    hex: `0xffff`  
    octal: `0o777`  
    binary: `0b1000`  
    scientific notation `1e10`
 
-Be careful of the `and` and `or` operators, they don't have short circuit with conditions.
-
-### Characters concat
+### String concat
 
 ```php
 {% $sayHello = "world" %}

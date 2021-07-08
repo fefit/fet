@@ -33,6 +33,7 @@ func TestTokenize(t *testing.T) {
 		assertTokenList(t, `"hello"`, "StringToken")
 		assertTokenList(t, `"hello 'world'"`, "StringToken")
 		assertTokenList(t, `"hello \"world\""`, "StringToken")
+		assertErrorTokenize(t, `'hello'`)
 		// number
 		assertTokenList(t, "1", "NumberToken")
 		assertTokenList(t, "-1", "NumberToken")
