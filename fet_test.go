@@ -47,5 +47,6 @@ func TestCompile(t *testing.T) {
 		assertOutputToBe(t, "divide.tpl", nil, "8,8,8,8")
 		assertOutputToBe(t, "minmax.tpl", nil, "1,2")
 		assertOutputToBe(t, "mod.tpl", nil, "1.15")
+		assertOutputToBe(t, "pipe.tpl", nil, "2021-09-05 18:07:06")
 	})
 }

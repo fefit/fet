@@ -199,8 +199,20 @@ func Helpers() template.FuncMap {
 	helpers["empty"] = empty
 	// date
 	helpers["now"] = now
-	helpers["strtotime"] = dateutil.StrToTime
-	helpers["date_format"] = dateutil.DateFormat
+	helpers["strtotime"] = func(target interface{}) int64 {
+		if timestamp, err := dateutil.StrToTime(target); err == nil {
+			return timestamp
+		} else {
+			panic(err)
+		}
+	}
+	helpers["date_format"] = func(target interface{}, format string) string {
+		if strTime, err := dateutil.DateFormat(target, format); err == nil {
+			return strTime
+		} else {
+			panic(err)
+		}
+	}
 	// helper
 	helpers["count"] = count
 	helpers["mrange"] = makeRange

@@ -219,6 +219,7 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 					}
 					express := string(runes[pos.StartIndex+1 : pos.EndIndex-1])
 					ast, _ := exp.Parse(express)
+
 					var inner string
 					if inner, noDelimit, err = gen.Build(ast, options, parseOptions); err != nil {
 						return noDelimit, err

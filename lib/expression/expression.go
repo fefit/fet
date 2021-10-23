@@ -37,13 +37,14 @@ type Expression struct {
 
 // Node struct
 type Node struct {
-	Left      *Node
-	Right     *Node
-	Root      *Node
-	Token     AnyToken
-	Type      string
-	Operator  string
-	Arguments []*Node
+	Left      *Node    // The left part of the tree
+	Right     *Node    // The right part of the tree
+	Root      *Node    // The root node, if is a chain object root or a function name node
+	Token     AnyToken // Token
+	Type      string   // The node type
+	Operator  string   // The operator of left and right node
+	Arguments []*Node  // If is a parameter of a function
+	Function  *Node    // If is a function parameter node, the Function point to the Function node
 }
 
 // OperatorList data
@@ -1177,6 +1178,26 @@ func getParsedNode(index int, parsed []AnyToken) *Node {
 	}
 }
 
+/**
+ * --------------------------------------------
+ * if a node is a parameter node of a function
+ * get the function node
+ * the function node itself maybe a parameter too
+ * so need recursive to the root function
+ * --------------------------------------------
+ */
+func getMaybeFuncNode(node *Node) *Node {
+	var lastNode *Node = node
+	for {
+		if lastNode.Function != nil {
+			lastNode = lastNode.Function
+		} else {
+			break
+		}
+	}
+	return lastNode
+}
+
 // parsed to ast
 func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, error) {
 	lastToken := Token{
@@ -1194,9 +1215,17 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 	}
 	var subs []AnyToken
 	var levels [2]int
+	// is in bracket, round or square bracket
 	isInBracket := false
+	// tokens not in round bracket
 	noRounds := []AnyToken{}
-	// parse round brackets
+	/*
+	 * 1. the first step:
+	 * resolve the round brackets
+	 * - check if the brackets are all closed correctly
+	 * - recursive parse the expression in brackets
+	 * - find the function identifier node
+	 */
 	for index, total := 0, len(tokens); index < total; index++ {
 		token := tokens[index]
 		if isInBracket {
@@ -1207,12 +1236,13 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 					return nil, err
 				}
 				noRounds = append(noRounds, tokenNode)
-				if isInFunc {
-					noRounds = append(noRounds, bracketToOperator(")", stat))
-				}
 				isInBracket = false
 				subs = nil
-				isInFunc = false
+				// if is in function node
+				if isInFunc {
+					isInFunc = false
+					noRounds = append(noRounds, bracketToOperator(")", stat))
+				}
 			} else {
 				subs = append(subs, token)
 			}
@@ -1251,10 +1281,16 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 			noRounds = append(noRounds, token)
 		}
 	}
-	lasts := []AnyToken{}
+	// reset the variables
 	isInBracket = false
 	levels = [2]int{}
-	// parse square brackets
+	/**
+	 * 2. the second step
+	 * resolve the square brackets
+	 * - recursive parse the expression in square bracket
+	 * - check if the square brackets are closed correctly
+	 */
+	lasts := []AnyToken{}
 	for index, total := 0, len(noRounds); index < total; index++ {
 		token := noRounds[index]
 		if isInBracket {
@@ -1285,7 +1321,13 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 			lasts = append(lasts, token)
 		}
 	}
-	// parse
+	/**
+	 * 3. the third step
+	 * resolve the brackets/object/unary operator
+	 * - remove the round bracket for function
+	 * - remove the unary operator: !
+	 * - remove the object chain '.' and '[]'
+	 */
 	ops := []*OperatorToken{}
 	parsed := []AnyToken{}
 	total := len(lasts)
@@ -1308,7 +1350,7 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 				}
 			}
 			name := op.Name
-			// parse unary
+			// parse unary not
 			if name == "!" {
 				i++
 				nextNode.Operator = name
@@ -1408,7 +1450,11 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 		}
 		return nil, fmt.Errorf("unexpect token,%#v", curToken)
 	}
-	// sort operators
+	/**
+	 * 4. the forth step
+	 * remove all operators, parse the tokens into a tree
+	 */
+	// sort operators, the priority of power operator is from right to left
 	opPower := "**"
 	sort.SliceStable(ops, func(i, j int) bool {
 		a, b := ops[i], ops[j]
@@ -1435,22 +1481,39 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 				Root: right,
 			}
 			result.Arguments = append(result.Arguments, left)
+			// set left function node
+			left.Function = result
+			// change the right function name to a function node
+			parsed[nextIndex] = &TokenNode{
+				Token: lastToken,
+				Node:  result,
+			}
 		} else if name == ":" {
 			result.Arguments = append(result.Arguments, right)
+			right.Function = result
+			// set all pipe function arguments as the owned function node
+			parsed[nextIndex] = &TokenNode{
+				Token: lastToken,
+				Node:  result,
+			}
 		} else if name == "," {
+			right.Function = result
 			if isArg {
+				// the non first argument
 				result.Arguments = append(result.Arguments, right)
 			} else {
+				// the first argument
 				result = &Node{
 					Type: "function",
 				}
 				result.Arguments = append(result.Arguments, left, right)
+				left.Function = result
 				isArg = true
 			}
 		} else {
 			result = &Node{
-				Left:     left,
-				Right:    right,
+				Left:     getMaybeFuncNode(left),
+				Right:    getMaybeFuncNode(right),
 				Operator: name,
 			}
 			for j := i + 1; j < opLen; j++ {
@@ -1468,11 +1531,15 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 			}
 		}
 	}
+	// if is in func less than one parameters
 	if isInFunc && !isArg {
 		fnNode := &Node{
 			Type: "function",
 		}
-		fnNode.Arguments = append(fnNode.Arguments, result)
+		if result.Type != "" {
+			fnNode.Arguments = append(fnNode.Arguments, result)
+			result.Function = fnNode
+		}
 		return &TokenNode{
 			Token: lastToken,
 			Node:  fnNode,
@@ -1484,6 +1551,9 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 	}, nil
 }
 
+/**
+ * tokenize the context string
+ */
 func (exp *Expression) tokenize(context string) (tokens []AnyToken, err error) {
 	if context == "" {
 		return
@@ -1527,7 +1597,7 @@ func (exp *Expression) tokenize(context string) (tokens []AnyToken, err error) {
 	}
 	// ignore test space token, because it is not complete
 	lasts := parser.Tokens
-	// spew.Dump(lasts)
+	// use spew.Dump(lasts) or litter.Dump
 	EOF := &EOFToken{}
 	if _, err = EOF.Validate(lasts); err != nil {
 		return nil, err

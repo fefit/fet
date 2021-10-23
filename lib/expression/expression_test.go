@@ -1,6 +1,7 @@
 package expression
 
 import (
+	"fmt"
 	"log"
 	"testing"
 
@@ -16,7 +17,7 @@ func assertTokenList(t *testing.T, code string, types ...string) {
 	for i, token := range tokens {
 		actualType := typeOf(token)
 		toBeType := types[i]
-		log.Println(actualType, toBeType)
+		log.Println(actualType, toBeType, fmt.Sprintf("%#v", token))
 		assert.Equal(t, actualType, toBeType, "the type is not matched")
 	}
 }
@@ -71,7 +72,7 @@ func TestTokenize(t *testing.T) {
 	})
 	// wrong tokens
 	t.Run("Test wrong simple tokens", func(t *testing.T) {
-		// wrong string
+		// // wrong string
 		assertErrorTokenize(t, `'hello'`)
 		assertErrorTokenize(t, `"hello`)
 		assertErrorTokenize(t, `hello"`)
@@ -95,6 +96,6 @@ func TestTokenize(t *testing.T) {
 	})
 	// complex tokens
 	t.Run("Test multiple tokens", func(t *testing.T) {
-
+		assertTokenList(t, "$time|strtotime|date_format:\"Y-m-d\"", "IdentifierToken", "OperatorToken", "IdentifierToken", "OperatorToken", "IdentifierToken", "OperatorToken", "StringToken")
 	})
 }
