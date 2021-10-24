@@ -1442,13 +1442,13 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 			parsed = append(parsed, token)
 		}
 	}
-	//
+	// if only one token
 	if len(parsed) == 1 {
 		curToken := parsed[0]
 		if result, ok := curToken.(*TokenNode); ok {
 			return result, nil
 		}
-		return nil, fmt.Errorf("unexpect token,%#v", curToken)
+		return nil, fmt.Errorf("Unexpected token:%#v", curToken)
 	}
 	/**
 	 * 4. the forth step
@@ -1531,15 +1531,16 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 			}
 		}
 	}
-	// if is in func less than one parameters
+	/**
+	 * if is in a function node and only one argument
+	 * e.g. => call($a - $b)
+	 */
 	if isInFunc && !isArg {
 		fnNode := &Node{
 			Type: "function",
 		}
-		if result.Type != "" {
-			fnNode.Arguments = append(fnNode.Arguments, result)
-			result.Function = fnNode
-		}
+		fnNode.Arguments = append(fnNode.Arguments, result)
+		result.Function = fnNode
 		return &TokenNode{
 			Token: lastToken,
 			Node:  fnNode,

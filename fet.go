@@ -197,7 +197,7 @@ func parseProps(node *Node, defField string) (*Props, error) {
 	values := []string{}
 	addProp := func() error {
 		if contains(props, prop) {
-			return fmt.Errorf("repeated tag property:'%s'", prop)
+			return fmt.Errorf("repeated properties: '%s'", prop)
 		}
 		if prop == defField {
 			isHasDefault = true
@@ -215,7 +215,7 @@ func parseProps(node *Node, defField string) (*Props, error) {
 				return lastIndex, nil
 			}
 		}
-		return i, fmt.Errorf("wrong quote index:%d", i)
+		return i, fmt.Errorf("incorrect quote at index:%d", i)
 	}
 	isOperator := func(ch string) bool {
 		return contains([]string{"!", ">", "<", "="}, ch)
@@ -239,7 +239,7 @@ func parseProps(node *Node, defField string) (*Props, error) {
 			case isWaitProp:
 				if s == '"' {
 					if isHasDefault {
-						return nil, fmt.Errorf("wrong default prop without property name")
+						return nil, fmt.Errorf("repeated default properties, maybe you need add a property name for one of them")
 					}
 					if lastIndex, err := isQuoteOk(i); err == nil {
 						defValue := string(rns[i : lastIndex+1])
@@ -411,7 +411,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	case AssignType, OutputType:
 		isAssign := node.Type == AssignType
 		if isAssign && !utils.IsIdentifier(name, conf.Mode) {
-			return "", node.halt("syntax error: wrong variable name '%s', please check the parser mode", name)
+			return "", node.halt("wrong identifier '%s', please check the parse mode in fet config", name)
 		}
 		ast, expErr := exp.Parse(content)
 		if expErr != nil {
@@ -419,19 +419,19 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 		}
 		if isAssign {
 			if _, ok := generator.LiteralSymbols[name]; ok {
-				return "", node.halt("syntax error: can not set literal '%s' as a variable name", name)
+				return "", node.halt("you can't use a literal of '%s' as a variable name", name)
 			}
 			symbol := " := "
 			if contains(currentScopes, name) {
 				symbol = " = "
 			}
 			if compiledText, _, err = gen.Build(ast, genOptions, parseOptions); err != nil {
-				return "", node.halt("compile error:%s", err.Error())
+				return "", node.halt("%s", err.Error())
 			}
 			result = delimit(addVarPrefix + name + localNS + symbol + compiledText)
 		} else {
 			if compiledText, noDelimit, err = gen.Build(ast, genOptions, parseOptions); err != nil {
-				return "", node.halt("compile error:%s", err.Error())
+				return "", node.halt("%s", err.Error())
 			}
 			if noDelimit {
 				result = compiledText
@@ -445,8 +445,11 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			defField := "file"
 			filename, _ := getStringField(node, defField)
 			tpl := getRealTplPath(filename, path.Join(node.Pwd, ".."), fet.TemplateDir)
-			if contains(*includes, tpl) || contains(*extends, tpl) {
-				return "", node.halt("the include or extends file '%s' has a loop dependence", tpl)
+			if contains(*includes, tpl) {
+				return "", node.halt("the 'include' file '%s' cause a circle depencncy.", tpl)
+			}
+			if contains(*extends, tpl) {
+				return "", node.halt("the 'extends' file '%s' cause a circle depencncy.", tpl)
 			}
 			incLocalScopes := []string{}
 			incCaptures := &map[string]string{}
@@ -480,7 +483,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 						value := prop.Raw
 						if ast, expErr := exp.Parse(value); expErr == nil {
 							if compiledText, _, err = gen.Build(ast, genOptions, parseOptions); err != nil {
-								return "", node.halt("compile error:%s", err.Error())
+								return "", node.halt("%s", err.Error())
 							}
 							incLocalScopes = append(incLocalScopes, "$"+key)
 							result += "{{ $" + key + incLocalNS + " := " + compiledText + "}}"
@@ -661,7 +664,7 @@ func (node *Node) halt(format string, args ...interface{}) error {
 	if node.Pwd != "" {
 		errmsg = "[file:'" + node.Pwd + "']"
 	}
-	errmsg += "[line:" + indexString(node.LineNo) + ",col:" + indexString(node.StartIndex-node.LineIndex+1) + "]" + fmt.Sprintf(format, args...)
+	errmsg += "[line:" + indexString(node.LineNo) + ",col:" + indexString(node.StartIndex-node.LineIndex+1) + "][error]" + fmt.Sprintf(format, args...)
 	return errors.New(errmsg)
 }
 
@@ -1782,16 +1785,25 @@ func (fet *Fet) RealCmplPath(tpl string) string {
 	return path.Join(fet.CompileDir, tpl)
 }
 
+// ShortTemplPath
+func (fet *Fet) ShortTmplPath(tpl string) string {
+	if shortTpl, err := filepath.Rel(fet.TemplateDir, tpl); err == nil {
+		return shortTpl
+	}
+	return tpl
+}
+
 func (fet *Fet) parseFile(tpl string, blocks []*Node, extends *[]string, nested int) (*NodeList, bool, error) {
+	shortTpl := fet.ShortTmplPath(tpl)
 	if contains(*extends, tpl) {
-		return nil, true, fmt.Errorf("the extends file is looped extend:%s", tpl)
+		return nil, true, fmt.Errorf("The 'extends' file '%s' cause a circle dependency.", shortTpl)
 	}
 	isSubTemplate := nested > 0
 	for {
 		if _, err := os.Stat(tpl); err == nil {
 			buf, err := ioutil.ReadFile(tpl)
 			if err != nil {
-				return nil, isSubTemplate, fmt.Errorf("read the file failure:%s", tpl)
+				return nil, isSubTemplate, fmt.Errorf("Open the file '%s' failure: %s", shortTpl, err.Error())
 			}
 			content := string(buf)
 			nl, err := fet.parse(content, tpl)
@@ -1852,7 +1864,7 @@ func (fet *Fet) parseFile(tpl string, blocks []*Node, extends *[]string, nested 
 			nl.Queues = queues
 			return nl, isSubTemplate, nil
 		} else if os.IsNotExist(err) {
-			return nil, isSubTemplate, fmt.Errorf("the file '%s' is not exists", tpl)
+			return nil, isSubTemplate, fmt.Errorf("The file '%s' is not exists", tpl)
 		} else {
 			return nil, isSubTemplate, err
 		}
@@ -1883,6 +1895,12 @@ func (fet *Fet) compileFileContent(tpl string, options *CompileOptions) (string,
 	return lastCode, nil
 }
 
+/**
+ * fet.getLastDir
+ * ---------------------------
+ * get the real directory of fet template
+ * ---------------------------
+ */
 func (fet *Fet) getLastDir(dir string) string {
 	if dir == "" {
 		return fet.cwd
@@ -1936,7 +1954,12 @@ func isDelimiterOk(left string, right string) (bool, error) {
 	return true, nil
 }
 
-// CheckConfig if have errors
+/**
+ * fet.CheckConfig
+ * ---------------------------
+ * check if a config is ok
+ * ---------------------------
+ */
 func (fet *Fet) CheckConfig() error {
 	if notexist, err := isDorfExists(fet.TemplateDir); err != nil {
 		if notexist {
@@ -1965,7 +1988,12 @@ func isDorfExists(pathname string) (notexist bool, err error) {
 	return false, nil
 }
 
-// Compile file
+/**
+ * fet.Compile
+ * ---------------------------
+ * compile one template file
+ * ---------------------------
+ */
 func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 	var (
 		result string
@@ -2092,20 +2120,28 @@ func (fet *Fet) GetCompileFiles(dorf string) ([]string, error) {
 	return fileList, nil
 }
 
-// CompileAll files
+/**
+ * fet.CompileAll
+ * ---------------------------
+ * compile all the files
+ * ---------------------------
+ */
 func (fet *Fet) CompileAll() (*sync.Map, error) {
 	var (
 		relations sync.Map
 		deps      []string
 	)
+	// list all the files need compile
 	files, err := fet.dirCompiledFiles(fet.TemplateDir)
 	if err != nil {
-		return &relations, fmt.Errorf("sorry,fail to open the compile directory:%s", err.Error())
+		return &relations, fmt.Errorf("Fail to open the template directory: %s", err.Error())
 	}
+	// if no files need compile
 	total := len(files)
 	if total == 0 {
 		return &relations, nil
 	}
+	// if only one file
 	if total == 1 {
 		_, deps, err = fet.Compile(files[0], true)
 		if err == nil {
@@ -2117,6 +2153,7 @@ func (fet *Fet) CompileAll() (*sync.Map, error) {
 		wg   sync.WaitGroup
 		errs []string
 	)
+	// compile the files concurrently
 	wg.Add(total)
 	for _, tpl := range files {
 		go func(tpl string, fet *Fet) {
@@ -2132,7 +2169,7 @@ func (fet *Fet) CompileAll() (*sync.Map, error) {
 	}
 	wg.Wait()
 	if errs != nil {
-		return &relations, fmt.Errorf("compile file error:%s", strings.Join(errs, "\n"))
+		return &relations, fmt.Errorf("Compile error:%s", strings.Join(errs, "\n"))
 	}
 	return &relations, nil
 }
