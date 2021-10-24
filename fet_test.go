@@ -13,6 +13,7 @@ func TestCompile(t *testing.T) {
 		Mode:           types.Smarty,
 		TemplateDir:    "tests/smarty/templates",
 		CompileDir:     "tests/smarty/views",
+		Ignores:        []string{"tests/smarty/templates/inc"},
 		LeftDelimiter:  "{%",
 		RightDelimiter: "%}",
 		UcaseField:     true,
@@ -48,5 +49,11 @@ func TestCompile(t *testing.T) {
 		assertOutputToBe(t, "minmax.tpl", nil, "1,2")
 		assertOutputToBe(t, "mod.tpl", nil, "1.15")
 		assertOutputToBe(t, "pipe.tpl", nil, "2021-09-05 18:07:06")
+		assertOutputToBe(t, "comment.tpl", nil, "")
+		assertOutputToBe(t, "include.tpl", map[string]string{
+			"Header": "hello",
+			"Footer": "fet",
+		}, "header:hello;footer:fet")
+		assertOutputToBe(t, "include_props.tpl", nil, "header:hello;footer:fet")
 	})
 }

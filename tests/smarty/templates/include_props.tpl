@@ -1,0 +1,1 @@
+{%include header="hello" "inc/header.tpl"%};{%include file="inc/footer.tpl" footer="fet"%}
