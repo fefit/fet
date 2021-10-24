@@ -33,6 +33,7 @@ func TestCompile(t *testing.T) {
 		assertOutputToBe(t, "variable.tpl", nil, helloFet)
 		assertOutputToBe(t, "strvar.tpl", nil, helloFet)
 		assertOutputToBe(t, "keywordvar.tpl", nil, helloFet)
+		// rewrite foreach
 		assertOutputToBe(t, "foreach.tpl", map[string][]string{
 			"Result": helloFetChars,
 		}, helloFet)
@@ -42,20 +43,36 @@ func TestCompile(t *testing.T) {
 		assertOutputToBe(t, "slice.tpl", map[string][]string{
 			"Result": helloFetChars,
 		}, "hello")
+		// maths
 		assertOutputToBe(t, "plus.tpl", nil, "5,5,5,5")
 		assertOutputToBe(t, "minus.tpl", nil, "0,0,0,0")
 		assertOutputToBe(t, "multiple.tpl", nil, "24,24,24,24")
 		assertOutputToBe(t, "divide.tpl", nil, "8,8,8,8")
 		assertOutputToBe(t, "minmax.tpl", nil, "1,2")
 		assertOutputToBe(t, "mod.tpl", nil, "1.15")
+		assertOutputToBe(t, "power.tpl", nil, "1024")
+		// pipe
 		assertOutputToBe(t, "pipe.tpl", nil, "2021-09-05 18:07:06")
+		// comment
 		assertOutputToBe(t, "comment.tpl", nil, "")
+		// include
 		assertOutputToBe(t, "include.tpl", map[string]string{
 			"Header": "hello",
 			"Footer": "fet",
 		}, "header:hello;footer:fet")
 		assertOutputToBe(t, "include_props.tpl", nil, "header:hello;footer:fet")
+		// extends
 		assertOutputToBe(t, "extends.tpl", nil, "(header)\n(content)\n(footer)")
 		assertOutputToBe(t, "extends_override.tpl", nil, "(override:header)\n(content)\n(footer)")
+		// if condition
+		assertOutputToBe(t, "condition.tpl", map[string]int{
+			"Number": 1,
+		}, "bigger")
+		assertOutputToBe(t, "condition.tpl", map[string]int{
+			"Number": 0,
+		}, "equal")
+		assertOutputToBe(t, "condition.tpl", map[string]int{
+			"Number": -1,
+		}, "smaller")
 	})
 }
