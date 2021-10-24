@@ -55,5 +55,7 @@ func TestCompile(t *testing.T) {
 			"Footer": "fet",
 		}, "header:hello;footer:fet")
 		assertOutputToBe(t, "include_props.tpl", nil, "header:hello;footer:fet")
+		assertOutputToBe(t, "extends.tpl", nil, "(header)\n(content)\n(footer)")
+		assertOutputToBe(t, "extends_override.tpl", nil, "(override:header)\n(content)\n(footer)")
 	})
 }
