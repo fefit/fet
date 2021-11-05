@@ -1,8 +1,6 @@
 package expression
 
 import (
-	"fmt"
-	"log"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,7 +15,6 @@ func assertTokenList(t *testing.T, code string, types ...string) {
 	for i, token := range tokens {
 		actualType := typeOf(token)
 		toBeType := types[i]
-		log.Println(actualType, toBeType, fmt.Sprintf("%#v", token))
 		assert.Equal(t, actualType, toBeType, "the type is not matched")
 	}
 }
@@ -97,5 +94,12 @@ func TestTokenize(t *testing.T) {
 	// complex tokens
 	t.Run("Test multiple tokens", func(t *testing.T) {
 		assertTokenList(t, "$time|strtotime|date_format:\"Y-m-d\"", "IdentifierToken", "OperatorToken", "IdentifierToken", "OperatorToken", "IdentifierToken", "OperatorToken", "StringToken")
+	})
+}
+
+func TestToAst(t *testing.T) {
+	t.Run("Test to ast", func(t *testing.T) {
+		_, err := exp.Parse("!!!!!$a.b != \"1\"")
+		assert.Nil(t, err)
 	})
 }

@@ -783,6 +783,7 @@ func (op *OperatorToken) Validate(tokens []AnyToken) (retryToken AnyToken, err e
 	switch prev.(type) {
 	case *NumberToken, *IdentifierToken, *RightBracketToken, *RightSquareBracketToken:
 	case *OperatorToken, nil:
+		// only allow unary token !
 		if name != "!" {
 			return nil, fmt.Errorf("wrong operator token")
 		}
@@ -1340,6 +1341,7 @@ func (exp *Expression) toAst(tokens []AnyToken, isInFunc bool) (*TokenNode, erro
 			if i+1 < total {
 				next = lasts[i+1]
 				if cur, ok := next.(*TokenNode); ok {
+					// multiple unary node
 					nextNode = cur.Node
 					isNextTokenNode = true
 				} else {

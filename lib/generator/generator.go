@@ -110,7 +110,8 @@ func (gen *Generator) wrapToFloat(node *Node, options *GenOptions, parseOptions 
 	fn := toFloatFn
 	if _, ok := compareFnNames[op]; ok {
 		isNative = true
-		if op == "==" {
+		// if equal or not equal
+		if op == "==" || op == "!=" {
 			fn = toFloatOrString
 		}
 	}
@@ -196,8 +197,8 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 	noObjectIndex, parseConf, captures := parseOptions.NoObjectIndex, parseOptions.Conf, parseOptions.Captures
 	curType := node.Type
 	conf := gen.Conf
-	isNot := node.Operator == "!"
-	if isNot {
+	isUnaryNot := node.Operator == "!"
+	if isUnaryNot {
 		str.WriteString("(not ")
 	}
 	if curType == "raw" {
@@ -437,7 +438,7 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 		}
 		str.WriteString(")")
 	}
-	if isNot {
+	if isUnaryNot {
 		str.WriteString(")")
 	}
 	return noDelimit, nil
