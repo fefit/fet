@@ -31,7 +31,7 @@ func TestCompile(t *testing.T) {
 	t.Run("Test Smarty mode compile", func(t *testing.T) {
 		assertOutputToBe(t, "hello.tpl", nil, helloFet)
 		assertOutputToBe(t, "variable.tpl", nil, helloFet)
-		assertOutputToBe(t, "strvar.tpl", nil, helloFet)
+		assertOutputToBe(t, "strvar.tpl", nil, helloFet+helloFet)
 		assertOutputToBe(t, "keywordvar.tpl", nil, helloFet)
 		// rewrite foreach
 		assertOutputToBe(t, "foreach.tpl", map[string][]string{

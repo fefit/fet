@@ -214,26 +214,25 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 				for _, pos := range vars {
 					if pos.StartIndex > i {
 						text := string(runes[i:pos.StartIndex])
-						str.WriteString("\"")
+						str.WriteString(" \"")
 						str.WriteString(text)
 						str.WriteString("\" ")
 					}
 					express := string(runes[pos.StartIndex+1 : pos.EndIndex-1])
 					ast, _ := exp.Parse(express)
-
 					var inner string
 					if inner, noDelimit, err = gen.Build(ast, options, parseOptions); err != nil {
 						return noDelimit, err
 					}
 					str.WriteString(inner)
-					i = pos.EndIndex + 1
+					i = pos.EndIndex
 					if i >= total {
 						break
 					}
 				}
-				if i < total {
+				if i < total-1 {
 					str.WriteString(" \"")
-					str.WriteString(string(runes[i-1 : total]))
+					str.WriteString(string(runes[i:]))
 				}
 				str.WriteString(")")
 			} else {

@@ -97,6 +97,11 @@ func TestTokenize(t *testing.T) {
 	})
 }
 
+func TestStringVariable(t *testing.T) {
+	assertTokenList(t, "\"hello `$name`!`$hello` fet!\"", "StringToken")
+	assertErrorTokenize(t, "\"hello `$name\"")
+}
+
 func TestToAst(t *testing.T) {
 	t.Run("Test to ast", func(t *testing.T) {
 		_, err := exp.Parse("!!!!!$a.b != \"1\"")

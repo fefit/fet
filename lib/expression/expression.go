@@ -479,25 +479,16 @@ func (str *StringToken) Add(s rune) (ok bool, isComplete bool, retry bool, err e
 		if logics["IsInVar"] {
 			last := str.Variables[len(str.Variables)-1]
 			last.EndIndex = len(stat.Values)
+			logics["IsInVar"] = false
 		} else {
-			logics["IsInVar"] = true
 			str.Variables = append(str.Variables, &Indexs{
 				StartIndex: len(stat.Values) - 1,
 			})
+			logics["IsInVar"] = true
 		}
 	} else if s == Quote {
 		isComplete = true
 		str.IsComplete = true
-		vars := str.Variables
-		realVars := []*Indexs{}
-		if len(vars) > 0 {
-			for _, pos := range vars {
-				if pos.EndIndex > pos.StartIndex+1 {
-					realVars = append(realVars, pos)
-				}
-			}
-			str.Variables = realVars
-		}
 	}
 	return
 }
@@ -506,6 +497,11 @@ func (str *StringToken) Add(s rune) (ok bool, isComplete bool, retry bool, err e
 func (str *StringToken) Validate(tokens []AnyToken) (retryToken AnyToken, err error) {
 	_, prevs := getNoSpaceTokens(tokens, 1)
 	prev := prevs[0]
+	stat := str.Stat
+	if stat.Logics["IsInVar"] {
+		index := str.Variables[len(str.Variables)-1]
+		return nil, fmt.Errorf("the variable %s in string is not end correctly.", string(stat.Values[index.StartIndex:]))
+	}
 	if prev == nil {
 		return
 	}
