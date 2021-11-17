@@ -485,8 +485,7 @@ func (str *StringToken) Add(s rune) (ok bool, isComplete bool, retry bool, err e
 				StartIndex: len(stat.Values) - 1,
 			})
 		}
-	}
-	if s == Quote {
+	} else if s == Quote {
 		isComplete = true
 		str.IsComplete = true
 		vars := str.Variables
@@ -754,9 +753,9 @@ func (number *NumberToken) ToNumber() float64 {
 		num = float64(cur)
 	} else {
 		if logics["IsFloat"] {
-			num, _ = strconv.ParseFloat(values+"."+string(number.Dicimals), 10)
+			num, _ = strconv.ParseFloat(values+"."+string(number.Dicimals), 64)
 		} else {
-			num, _ = strconv.ParseFloat(values, 10)
+			num, _ = strconv.ParseFloat(values, 64)
 		}
 		if number.Power != nil {
 			power = number.Power.ToNumber()
