@@ -182,16 +182,17 @@ func getNoSpaceTokens(tokens []AnyToken, num int) (isPrevSpace bool, result []An
 
 // TokenStat struct
 type TokenStat struct {
-	StartIndex int
-	Index      int
-	ParseIndex int
-	RBLevel    int
-	RBSubLevel int
-	SBLevel    int
-	SBSubLevel int
-	Logics     Flags
-	Context    *Runes
-	Values     Runes
+	StartIndex  int
+	Index       int
+	ParseIndex  int
+	RBLevel     int
+	RBSubLevel  int
+	SBLevel     int
+	SBSubLevel  int
+	Logics      Flags
+	Context     *Runes
+	Values      Runes
+	LeftBracket *LeftBracketToken
 }
 
 // Token struct
@@ -271,14 +272,20 @@ func (bracket *LeftBracketToken) Validate(tokens []AnyToken) (retryToken AnyToke
 	if prev == nil {
 		return
 	}
-	switch prev.(type) {
+	switch prev := prev.(type) {
 	case *OperatorToken, *LeftBracketToken:
 	case *IdentifierToken, *RightSquareBracketToken:
 		if hasSpace {
 			return nil, fmt.Errorf("wrong space between function name and (")
 		}
-		stat := bracket.Stat
-		stat.Logics = Flags{
+		bracket.Stat.Logics = Flags{
+			"IsFunc": true,
+		}
+	case *RightBracketToken:
+		if prev.Stat.LeftBracket == nil || !prev.Stat.LeftBracket.Stat.Logics["IsFunc"] {
+			return nil, fmt.Errorf("the previous bracket ')' before the left bracket '(' must a function call")
+		}
+		bracket.Stat.Logics = Flags{
 			"IsFunc": true,
 		}
 	default:
@@ -303,7 +310,7 @@ func (bracket *RightBracketToken) Validate(tokens []AnyToken) (retryToken AnyTok
 	if stat.RBLevel < 1 {
 		return nil, fmt.Errorf("wrong right round bracket without start:%d", stat.StartIndex)
 	}
-	prevs := getPrevTokens(tokens, 1)
+	_, prevs := getNoSpaceTokens(tokens, 1)
 	p0 := prevs[0]
 	if p0, ok := p0.(*LeftBracketToken); ok && !p0.Stat.Logics["IsFunc"] {
 		return nil, fmt.Errorf("empty expression")
@@ -439,7 +446,7 @@ func (identifier *IdentifierToken) Validate(tokens []AnyToken) (retryToken AnyTo
 	switch prev.(type) {
 	case *OperatorToken, *LeftBracketToken, *LeftSquareBracketToken:
 	default:
-		return nil, fmt.Errorf("wrong idenfier token")
+		return nil, fmt.Errorf("wrong identifier token")
 	}
 	return
 }
@@ -868,6 +875,7 @@ func (node *TokenNode) Add(s rune) (ok bool, isComplete bool, retry bool, err er
 	return
 }
 
+// set level by check the map
 func setLevel(list map[int]int, level int) (subLevel int) {
 	if value, exists := list[level]; exists {
 		list[level] = value + 1
@@ -877,18 +885,33 @@ func setLevel(list map[int]int, level int) (subLevel int) {
 	return list[level]
 }
 
+func popLeftBracket(leftBrackets *[]*LeftBracketToken) *LeftBracketToken {
+	len := len(*leftBrackets)
+	if len > 0 {
+		last := (*leftBrackets)[len-1]
+		*leftBrackets = (*leftBrackets)[:len-1]
+		return last
+	}
+	return nil
+}
+
 // Parser struct
 type Parser struct {
-	Current      AnyToken
-	Tokens       []AnyToken
-	RBLevel      int
-	RBSubLevel   int
-	SBLevel      int
+	Current AnyToken
+	Tokens  []AnyToken
+	// round bracket level
+	RBLevel int
+	// nested round bracket level
+	RBSubLevel int
+	// square bracket level
+	SBLevel int
+	// nested square bracket level
 	SBSubLevel   int
 	BLList       map[int]int
 	SLList       map[int]int
 	CurBrSqLevel [2]int
 	CurSqBrLevel [2]int
+	LeftBrackets []*LeftBracketToken
 	Asserts      map[int]AnyToken
 	TokenIndex   int
 	Context      Runes
@@ -929,6 +952,7 @@ func (parser *Parser) Reuse() {
 	parser.SLList = map[int]int{}
 	parser.CurBrSqLevel = [2]int{}
 	parser.CurSqBrLevel = [2]int{}
+	parser.LeftBrackets = []*LeftBracketToken{}
 	parser.TokenIndex = -1
 	parser.IgnoreIndex = -1
 	parser.TokenStat = &TokenStat{}
@@ -1027,7 +1051,7 @@ func (parser *Parser) Add(s rune) error {
 			}
 		}
 		if current == nil {
-			return fmt.Errorf("can not find any token match ->" + string(s))
+			return fmt.Errorf("syntax error: no token match the character '%s'", string(s))
 		}
 	} else {
 		ok, isComplete, retry, err = current.Add(s)
@@ -1058,12 +1082,13 @@ func (parser *Parser) Add(s rune) error {
 		rbsl := parser.RBSubLevel
 		sbsl := parser.SBSubLevel
 		tokens := parser.Tokens
-		switch current.(type) {
+		switch current := current.(type) {
 		case *LeftBracketToken:
 			parser.RBSubLevel = setLevel(blList, rbl)
 			currentStat.RBLevel = rbl + 1
 			currentStat.RBSubLevel = parser.RBSubLevel
 			parser.CurBrSqLevel = [2]int{sbl, sbsl}
+			parser.LeftBrackets = append(parser.LeftBrackets, current)
 			parser.RBLevel++
 		case *RightBracketToken:
 			levels := parser.CurBrSqLevel
@@ -1071,6 +1096,7 @@ func (parser *Parser) Add(s rune) error {
 			if levels[0] != sbl {
 				return fmt.Errorf("wrong matched right bracket")
 			}
+			current.Stat.LeftBracket = popLeftBracket(&parser.LeftBrackets)
 			currentStat.RBLevel = rbl
 			parser.RBLevel--
 		case *LeftSquareBracketToken:

@@ -54,9 +54,21 @@ func TestTokenize(t *testing.T) {
 		assertTokenList(t, "_1", "IdentifierToken")
 		assertTokenList(t, "ID", "IdentifierToken")
 		assertTokenList(t, "i_", "IdentifierToken")
-		// brackets
+		// round brackets
 		assertTokenList(t, "(e)", "LeftBracketToken", "IdentifierToken", "RightBracketToken")
+		assertTokenList(t, "((e)+e)", "LeftBracketToken", "LeftBracketToken", "IdentifierToken", "RightBracketToken", "OperatorToken", "IdentifierToken", "RightBracketToken")
+		assertTokenList(t, "a+(e)", "IdentifierToken", "OperatorToken", "LeftBracketToken", "IdentifierToken", "RightBracketToken")
+		assertTokenList(t, "call(e)", "IdentifierToken", "LeftBracketToken", "IdentifierToken", "RightBracketToken")
+		assertTokenList(t, "call(e)(f)", "IdentifierToken", "LeftBracketToken", "IdentifierToken", "RightBracketToken", "LeftBracketToken", "IdentifierToken", "RightBracketToken")
+		assertTokenList(t, "call(e)(f)(g)", "IdentifierToken", "LeftBracketToken", "IdentifierToken", "RightBracketToken", "LeftBracketToken", "IdentifierToken", "RightBracketToken", "LeftBracketToken", "IdentifierToken", "RightBracketToken")
+		// square brackets
 		assertTokenList(t, "a[0]", "IdentifierToken", "LeftSquareBracketToken", "NumberToken", "RightSquareBracketToken")
+		assertTokenList(t, "a[0 ]", "IdentifierToken", "LeftSquareBracketToken", "NumberToken", "SpaceToken", "RightSquareBracketToken")
+		assertTokenList(t, "a[ 0]", "IdentifierToken", "LeftSquareBracketToken", "SpaceToken", "NumberToken", "RightSquareBracketToken")
+		assertTokenList(t, "a[ 0 ]", "IdentifierToken", "LeftSquareBracketToken", "SpaceToken", "NumberToken", "SpaceToken", "RightSquareBracketToken")
+		// mix brackets
+		assertTokenList(t, "a[0](e)", "IdentifierToken", "LeftSquareBracketToken", "NumberToken", "RightSquareBracketToken", "LeftBracketToken", "IdentifierToken", "RightBracketToken")
+		assertTokenList(t, "a[0](e)[1]", "IdentifierToken", "LeftSquareBracketToken", "NumberToken", "RightSquareBracketToken", "LeftBracketToken", "IdentifierToken", "RightBracketToken", "LeftSquareBracketToken", "NumberToken", "RightSquareBracketToken")
 		// operators
 		assertTokenList(t, "1+1", "NumberToken", "OperatorToken", "NumberToken")
 		assertTokenList(t, "1-1", "NumberToken", "OperatorToken", "NumberToken")
@@ -90,6 +102,12 @@ func TestTokenize(t *testing.T) {
 		assertErrorTokenize(t, `1 >= "a"`)
 		assertErrorTokenize(t, `1bitor 2`)
 		assertErrorTokenize(t, `1 bitor2`)
+		// wrong brackets
+		assertErrorTokenize(t, "()")
+		assertErrorTokenize(t, "( )")
+		assertErrorTokenize(t, "a (e)")
+		assertErrorTokenize(t, "(e)(f)")
+		assertErrorTokenize(t, "a [0]")
 	})
 	// complex tokens
 	t.Run("Test multiple tokens", func(t *testing.T) {

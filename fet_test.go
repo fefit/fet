@@ -33,6 +33,7 @@ func TestCompile(t *testing.T) {
 		assertOutputToBe(t, "variable.tpl", nil, helloFet)
 		assertOutputToBe(t, "strvar.tpl", nil, helloFet+helloFet)
 		assertOutputToBe(t, "keywordvar.tpl", nil, helloFet)
+		assertOutputToBe(t, "concat.tpl", nil, helloFet)
 		// rewrite foreach
 		assertOutputToBe(t, "foreach.tpl", map[string][]string{
 			"Result": helloFetChars,
