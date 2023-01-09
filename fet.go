@@ -82,15 +82,16 @@ type Position struct {
 
 // CompileOptions struct
 type CompileOptions struct {
-	File         string
-	ParentNS     string
-	LocalNS      string
-	ParentScopes []string
-	LocalScopes  *[]string
-	Includes     *[]string
-	Extends      *[]string
-	Captures     *map[string]string
-	ParseOptions *generator.ParseOptions
+	File          string
+	ParentNS      string
+	LocalNS       string
+	ParentScopes  []string
+	LocalScopes   *[]string
+	Includes      *[]string
+	IncludeChains *Imports
+	Extends       *[]string
+	Captures      *map[string]string
+	ParseOptions  *generator.ParseOptions
 }
 
 // Node struct
@@ -150,6 +151,90 @@ var (
 		"capture": validCaptureTag,
 	}
 )
+
+// ImportNode
+type ImportNode struct {
+	Value string
+	Prevs []*ImportNode
+	Nexts []*ImportNode
+}
+
+func (importNode *ImportNode) LookupCircle(search *ImportNode, chains []*ImportNode) []string {
+	prevs := importNode.Prevs
+	outputCircles := func(result []string, nodes []*ImportNode) []string {
+		for i := len(nodes) - 1; i >= 0; i-- {
+			result = append(result, nodes[i].Value)
+		}
+		return result
+	}
+	if len(prevs) == 0 {
+		return []string{}
+	}
+	// look current node's prevs
+	for _, node := range prevs {
+		if node == search {
+			return outputCircles([]string{
+				node.Value,
+				importNode.Value,
+			}, chains)
+		}
+	}
+	// lookup prevs
+	curChains := append(chains, importNode)
+	for _, node := range prevs {
+		result := node.LookupCircle(search, curChains)
+		if len(result) > 0 {
+			return result
+		}
+	}
+	// no circle depends finded
+	return []string{}
+}
+
+type Imports struct {
+	Nodes map[string]*ImportNode
+}
+
+func (imports *Imports) Add(cur string, depend string) []string {
+	// circle depend itself
+	if cur == depend {
+		return []string{cur}
+	}
+	// cur node
+	var curNode *ImportNode
+	if node, exists := imports.Nodes[cur]; exists {
+		curNode = node
+	} else {
+		node := &ImportNode{
+			Value: cur,
+			Prevs: []*ImportNode{},
+			Nexts: []*ImportNode{},
+		}
+		imports.Nodes[cur] = node
+		curNode = node
+	}
+	// next node
+	var nextNode *ImportNode
+	if node, exists := imports.Nodes[depend]; exists {
+		nextNode = node
+		nextNode.Prevs = append(nextNode.Prevs, curNode)
+	} else {
+		node := &ImportNode{
+			Value: depend,
+			Prevs: []*ImportNode{
+				// add cur node to the next node's prevs
+				curNode,
+			},
+			Nexts: []*ImportNode{},
+		}
+		imports.Nodes[depend] = node
+		nextNode = node
+	}
+	// add next node to cur node's nexts
+	curNode.Nexts = append(curNode.Nexts, nextNode)
+	// judge if the next depend node appears in prevs chains
+	return curNode.LookupCircle(nextNode, []*ImportNode{})
+}
 
 // UnknownType need parse
 const (
@@ -369,7 +454,7 @@ func getStringField(node *Node, defField string) (string, error) {
 func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 	fet := node.Fet
 	exp, gen, conf, delimit := fet.exp, fet.gen, fet.Config, fet.wrapCode
-	includes, extends, captures := options.Includes, options.Extends, options.Captures
+	includes, extends, captures, includeChains := options.Includes, options.Extends, options.Captures, options.IncludeChains
 	parseOptions := options.ParseOptions
 	name, content := node.Name, node.Content
 	parentScopes, localScopes := options.ParentScopes, options.LocalScopes
@@ -445,7 +530,8 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			defField := "file"
 			filename, _ := getStringField(node, defField)
 			tpl := getRealTplPath(filename, path.Join(node.Pwd, ".."), fet.TemplateDir)
-			if contains(*includes, tpl) {
+			// judge if include chains has circle depends
+			if len(includeChains.Add(options.File, tpl)) > 0 {
 				return "", node.halt("the 'include' file '%s' cause a circle depencncy.", tpl)
 			}
 			if contains(*extends, tpl) {
@@ -454,11 +540,13 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			incLocalScopes := []string{}
 			incCaptures := &map[string]string{}
 			incOptions := &CompileOptions{
-				ParentScopes: currentScopes[:],
-				LocalScopes:  &incLocalScopes,
-				Extends:      extends,
-				Includes:     includes,
-				Captures:     incCaptures,
+				ParentScopes:  currentScopes[:],
+				LocalScopes:   &incLocalScopes,
+				Extends:       extends,
+				Includes:      includes,
+				IncludeChains: includeChains,
+				File:          tpl,
+				Captures:      incCaptures,
 				ParseOptions: &generator.ParseOptions{
 					Conf:     conf,
 					Captures: incCaptures,
@@ -2002,6 +2090,9 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 	parentScopes := []string{}
 	localScopes := []string{}
 	includes := []string{}
+	includeChains := Imports{
+		Nodes: map[string]*ImportNode{},
+	}
 	extends := []string{}
 	captures := map[string]string{}
 	deps := []string{}
@@ -2013,12 +2104,13 @@ func (fet *Fet) Compile(tpl string, writeFile bool) (string, []string, error) {
 		Captures: &captures,
 	}
 	options := &CompileOptions{
-		ParentScopes: parentScopes,
-		LocalScopes:  &localScopes,
-		Includes:     &includes,
-		Extends:      &extends,
-		Captures:     &captures,
-		ParseOptions: parseOptions,
+		ParentScopes:  parentScopes,
+		LocalScopes:   &localScopes,
+		Includes:      &includes,
+		IncludeChains: &includeChains,
+		Extends:       &extends,
+		Captures:      &captures,
+		ParseOptions:  parseOptions,
 	}
 	if writeFile {
 		relaTpl, _ := filepath.Rel(fet.TemplateDir, tplFile)
