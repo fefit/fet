@@ -103,11 +103,17 @@ func TestTokenize(t *testing.T) {
 		assertErrorTokenize(t, `1bitor 2`)
 		assertErrorTokenize(t, `1 bitor2`)
 		// wrong brackets
+		assertErrorTokenize(t, ")")
+		assertErrorTokenize(t, "(")
+		assertErrorTokenize(t, "()())")
+		assertErrorTokenize(t, "(()()")
 		assertErrorTokenize(t, "()")
 		assertErrorTokenize(t, "( )")
 		assertErrorTokenize(t, "a (e)")
 		assertErrorTokenize(t, "(e)(f)")
 		assertErrorTokenize(t, "a [0]")
+		// wrong square brackets
+		assertErrorTokenize(t, "[]")
 	})
 	// complex tokens
 	t.Run("Test multiple tokens", func(t *testing.T) {
