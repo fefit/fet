@@ -153,10 +153,11 @@ var (
 )
 
 // ImportNode
+// every node will lookup it's prevs
+// so nexts are not necessary
 type ImportNode struct {
 	Value string
 	Prevs []*ImportNode
-	Nexts []*ImportNode
 }
 
 func (importNode *ImportNode) LookupCircle(search *ImportNode, chains []*ImportNode) []string {
@@ -208,7 +209,6 @@ func (imports *Imports) Add(cur string, depend string) []string {
 		node := &ImportNode{
 			Value: cur,
 			Prevs: []*ImportNode{},
-			Nexts: []*ImportNode{},
 		}
 		imports.Nodes[cur] = node
 		curNode = node
@@ -225,14 +225,11 @@ func (imports *Imports) Add(cur string, depend string) []string {
 				// add cur node to the next node's prevs
 				curNode,
 			},
-			Nexts: []*ImportNode{},
 		}
 		imports.Nodes[depend] = node
 		nextNode = node
 	}
-	// add next node to cur node's nexts
-	curNode.Nexts = append(curNode.Nexts, nextNode)
-	// judge if the next depend node appears in prevs chains
+	// judge if the next depend node in prevs chains
 	return curNode.LookupCircle(nextNode, []*ImportNode{})
 }
 
