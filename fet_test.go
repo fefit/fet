@@ -75,6 +75,12 @@ func TestCompile(t *testing.T) {
 		assertOutputToBe(t, "condition.tpl", map[string]int{
 			"Number": -1,
 		}, "smaller")
+		// compare
+		assertOutputToBe(t, "compare.tpl", map[string]interface{}{
+			"Result": map[string]int{
+				"Errno": 100,
+			},
+		}, helloFet)
 	})
 }
 
