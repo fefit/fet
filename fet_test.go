@@ -75,5 +75,45 @@ func TestCompile(t *testing.T) {
 		assertOutputToBe(t, "condition.tpl", map[string]int{
 			"Number": -1,
 		}, "smaller")
+		// compare
+		assertOutputToBe(t, "compare.tpl", map[string]interface{}{
+			"Result": map[string]int{
+				"Errno": 100,
+			},
+		}, helloFet)
 	})
+}
+
+func TestImportsDepends(t *testing.T) {
+	var initImports = func() Imports {
+		return Imports{
+			Nodes: map[string]*ImportNode{},
+		}
+	}
+	// A -> A depend itself
+	imports := initImports()
+	assert.True(t, len(imports.Add("A", "A")) > 0)
+	// A -> B   B -> C  C -> A
+	imports = initImports()
+	assert.True(t, len(imports.Add("A", "B")) == 0)
+	assert.True(t, len(imports.Add("B", "C")) == 0)
+	assert.True(t, len(imports.Add("C", "A")) > 0)
+	// A -> B  C -> A  B -> C
+	imports = initImports()
+	assert.True(t, len(imports.Add("A", "B")) == 0)
+	assert.True(t, len(imports.Add("C", "A")) == 0)
+	assert.True(t, len(imports.Add("B", "C")) > 0)
+	// C -> D A -> B  D -> A  B -> C
+	imports = initImports()
+	assert.True(t, len(imports.Add("C", "D")) == 0)
+	assert.True(t, len(imports.Add("A", "B")) == 0)
+	assert.True(t, len(imports.Add("D", "A")) == 0)
+	assert.True(t, len(imports.Add("B", "C")) > 0)
+	// A -> B  A -> C  C -> D  D -> A
+	imports = initImports()
+	assert.True(t, len(imports.Add("A", "B")) == 0)
+	assert.True(t, len(imports.Add("A", "C")) == 0)
+	assert.True(t, len(imports.Add("D", "A")) == 0)
+	assert.True(t, len(imports.Add("C", "D")) > 0)
+
 }

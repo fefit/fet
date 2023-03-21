@@ -1,7 +1,7 @@
 # FET
 
 [![tag](https://img.shields.io/github/v/tag/fefit/fet.svg?sort=semver)](https://github.com/fefit/fet/tags)
-[![Build Status](https://travis-ci.com/fefit/fet.svg?branch=master)](https://travis-ci.com/github/fefit/fet)
+[![test](https://github.com/fefit/fet/actions/workflows/test-and-cov.yml/badge.svg)](https://github.com/fefit/fet/actions)
 [![codecov](https://codecov.io/gh/fefit/fet/branch/master/graph/badge.svg)](https://codecov.io/gh/fefit/fet)
 
 FET is a golang template engine that can tranlate smarty like template code into golang `html/template`.
@@ -15,7 +15,7 @@ FET means Friendly, Easily for Template code. The official golang package `html/
 - Expression logics
 - Use `incldue` with defined variables scopes
 - Use `extends` inherit base template with defined variables scopes
-- Limited support for `for` and `capture` 
+- Limited support for `for` and `capture`
 
 ## Document
 
@@ -131,30 +131,28 @@ it's more likely to the php template engine smarty.
 
 1. operators: You can either use the keyword operator or the punctuation.
 
-  
-    | keyword  | punctuation  | example |
-    |---|---|---|
-    |  `and` | `&&`  | `1 && 2`  <=>  `1 and 2` |
-    |  `or` | `\|\|`   | `1 \|\| 2` <=> `1 or 2`|
-    |  `not` | `!`  | `!a` <=> `not a`|
-    |`eq`| `==`| `a == b` <=> `a eq b`|
-    |  `ne` | `!=`  | `a != b` <=> `a ne b`|
-    |`gt`| `>`| `a > b` <=> `a gt b`|
-    |`ge`| `>=`| `a >= b` <=> `a ge b`|
-    |`lt`| `<`| `a < b` <=> `a lt b`|
-    |`le`| `<=`| `a <= b` <=> `a le b`|
-    | `bitor` | - | `a bitor b` |
-    | - | `&` | `a & b`|
-    | - | `^` | `a ^ b`| 
-    | - | `+` | `a + b`| 
-    | - | `-` | `a - b`| 
-    | - | `*` | `a * b`| 
-    | - | `/` | `a / b`| 
-    | - | `%` | `a % b`| 
-    | - | `**` | `a ** b`|
+   | keyword | punctuation | example                 |
+   | ------- | ----------- | ----------------------- |
+   | `and`   | `&&`        | `1 && 2` <=> `1 and 2`  |
+   | `or`    | `\|\|`      | `1 \|\| 2` <=> `1 or 2` |
+   | `not`   | `!`         | `!a` <=> `not a`        |
+   | `eq`    | `==`        | `a == b` <=> `a eq b`   |
+   | `ne`    | `!=`        | `a != b` <=> `a ne b`   |
+   | `gt`    | `>`         | `a > b` <=> `a gt b`    |
+   | `ge`    | `>=`        | `a >= b` <=> `a ge b`   |
+   | `lt`    | `<`         | `a < b` <=> `a lt b`    |
+   | `le`    | `<=`        | `a <= b` <=> `a le b`   |
+   | `bitor` | -           | `a bitor b`             |
+   | -       | `&`         | `a & b`                 |
+   | -       | `^`         | `a ^ b`                 |
+   | -       | `+`         | `a + b`                 |
+   | -       | `-`         | `a - b`                 |
+   | -       | `*`         | `a * b`                 |
+   | -       | `/`         | `a / b`                 |
+   | -       | `%`         | `a % b`                 |
+   | -       | `**`        | `a ** b`                |
 
-  
-    Be careful of the `and` and `or` operators, they don't have short circuit with conditions.
+   Be careful of the `and` and `or` operators, they don't have short circuit with conditions.
 
 2. pipe  
    `|` pipeline funcs  
@@ -181,9 +179,8 @@ use ` `` ` for variable or expression in strings. do not use `+`.
   `min` `max` `floor` `ceil`
 
 - Formats  
-  `number_format` 
-  
-- Strings 
+  `number_format`
+- Strings
   `truncate` `concat` `ucwords`
 
 - Assert  

@@ -2,6 +2,8 @@ package utils
 
 import (
 	"github.com/fefit/fet/types"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // IsIdentifier judge
@@ -39,4 +41,10 @@ func IsEnLetter(s rune) bool {
 // IsArabicNumber Judge if is Arabic numbers
 func IsArabicNumber(s rune) bool {
 	return s >= 48 && s <= 57
+}
+
+// Ucase
+func Ucase(str string) string {
+	caser := cases.Title(language.English)
+	return caser.String(str)
 }

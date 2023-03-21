@@ -156,7 +156,7 @@ func (gen *Generator) parseIdentifier(options *GenOptions, parseOptions *ParseOp
 			if isInCapture {
 				str.WriteString("$.Variables.")
 				varName := strings.TrimPrefix(name, "$")
-				str.WriteString(strings.Title(varName))
+				str.WriteString(utils.Ucase(varName))
 			} else {
 				str.WriteString(name)
 			}
@@ -183,7 +183,7 @@ func (gen *Generator) parseIdentifier(options *GenOptions, parseOptions *ParseOp
 					str.WriteString("$")
 				}
 				if conf.Ucfirst {
-					name = strings.Title(name)
+					name = utils.Ucase(name)
 				}
 			}
 			str.WriteString(name)
@@ -351,7 +351,7 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 					if t, ok := token.(*e.StringToken); ok {
 						prop := string(t.Stat.Values)
 						if conf.Ucfirst {
-							str.WriteString(strings.Title(prop))
+							str.WriteString(utils.Ucase(prop))
 						} else {
 							str.WriteString(prop)
 						}
@@ -362,7 +362,7 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 						ident := string(t.Stat.Values)
 						if cur.Operator == "." {
 							if conf.Ucfirst {
-								ident = strings.Title(ident)
+								ident = utils.Ucase(ident)
 							}
 							str.WriteString("\"")
 							str.WriteString(ident)
@@ -386,7 +386,8 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 		}
 		if !noObjectIndex && !isStatic {
 			str.WriteString(")")
-		} else {
+		}
+		if !noObjectIndex {
 			parseOptions.NoObjectIndex = false
 		}
 	} else if curType == "function" {
@@ -421,6 +422,10 @@ func (gen *Generator) parseRecursive(node *Node, options *GenOptions, parseOptio
 			}
 		}
 		str.WriteString(")")
+		// reset no object index
+		if parseOptions.NoObjectIndex {
+			parseOptions.NoObjectIndex = false
+		}
 	} else {
 		op := node.Operator
 		if name, ok := operatorFnNames[op]; ok {
