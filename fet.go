@@ -671,7 +671,7 @@ func (node *Node) Compile(options *CompileOptions) (result string, err error) {
 			result = "{{" + capVar + " := (INJECT_CAPTURE_SCOPE . "
 			for _, varName := range currentScopes {
 				varName = strings.TrimPrefix(varName, "$")
-				result += "\"" + strings.Title(varName) + "\" $" + varName
+				result += "\"" + utils.Ucase(varName) + "\" $" + varName
 			}
 			result += ")}}"
 			(*captures)[keyName] = capVar

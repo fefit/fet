@@ -1,0 +1,1 @@
+{%if !empty($result.errno) && $result.errno == 100%}hello fet!{%/if%}
