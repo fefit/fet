@@ -10,7 +10,7 @@ func parseToken(str string, token IToken) (IToken, error) {
 	var t IToken
 	var err error
 	for i := 0; i < len(str); i++ {
-		if t, err = token.Add(str[i]); err != nil {
+		if t, err = token.Add(str[i], nil); err != nil {
 			return t, err
 		}
 	}
@@ -107,6 +107,7 @@ func TestIdentifierToken(t *testing.T) {
 
 func TestMain(t *testing.T) {
 	exp := New()
-	_, err := exp.Parse("a + b * 3")
+	_, err := exp.Parse("a ++ + (b * 3)")
 	assert.Error(t, err)
+	assert.Nil(t, err)
 }
