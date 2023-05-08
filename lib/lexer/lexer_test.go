@@ -107,7 +107,7 @@ func TestIdentifierToken(t *testing.T) {
 
 func TestMain(t *testing.T) {
 	exp := New()
-	_, err := exp.Parse("++$a + b.f * (c - e) / (5 - e) + 3")
+	_, err := exp.Parse("a + b()")
 	assert.Error(t, err)
 	assert.Nil(t, err)
 }

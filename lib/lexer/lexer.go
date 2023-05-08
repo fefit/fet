@@ -813,12 +813,42 @@ func (arr *ArrayLiteral) RawBytes() []byte {
  * e.g => abc(), abc(1+2, "def")
  */
 type FunctionCall struct {
-	Name IToken
-	Args []Expression
-	Raw  []byte
+	IsEnd bool
+	Name  IToken
+	Args  []*Expression
+	Raw   []byte
 }
 
 func (fn *FunctionCall) Add(bt byte, exp *Expression) (IToken, error) {
+	// first check if fn call is end
+	if fn.IsEnd {
+		return AddSpaceOrOperatorByte(bt)
+	}
+	// add byte to cur argument
+	totalArgs := len(fn.Args)
+	curArg := fn.Args[totalArgs-1]
+	if _, err := curArg.Add(bt, curArg); err != nil {
+		if bt == ',' {
+			// fn(1,
+			if err = curArg.Eof(); err == nil {
+				arg := New()
+				fn.Args = append(fn.Args, &arg)
+				return nil, nil
+			}
+		} else if op, isOp := curArg.getPrevToken().(*OperatorToken); isOp && op == &parenEndOperator {
+			// fn(1, 2)
+			if err = curArg.Eof(); err == nil {
+				fn.IsEnd = true
+				return nil, nil
+			} else if curArg.IsEmpty() {
+				// fn(1,)
+				fn.Args = fn.Args[:totalArgs-1]
+				fn.IsEnd = true
+				return nil, nil
+			}
+		}
+		return nil, err
+	}
 	return nil, nil
 }
 
@@ -888,13 +918,32 @@ func (obj *ObjectProperty) RawBytes() []byte {
 *
  */
 type ArrayField struct {
+	IsEnd        bool
 	Array        IToken
 	Field        *IdentifierToken
 	DynamicField *Expression
-	Raw          []byte
 }
 
 func (arr *ArrayField) Add(bt byte, exp *Expression) (IToken, error) {
+	// first check if static field
+	if arr.Field != nil {
+		return arr.Field.Add(bt, exp)
+	}
+	// then check if the dynamic field is end
+	if arr.IsEnd {
+		return AddSpaceOrOperatorByte(bt)
+	}
+	// add byte to dynamic field
+	dynamicField := arr.DynamicField
+	if _, err := dynamicField.Add(bt, dynamicField); err != nil {
+		if bt == ']' {
+			if err = dynamicField.Eof(); err == nil {
+				arr.IsEnd = true
+				return nil, nil
+			}
+		}
+		return nil, err
+	}
 	return nil, nil
 }
 
@@ -970,6 +1019,9 @@ func (exp *Expression) addOperator(op *OperatorToken) error {
 	opStack := exp.OpStack
 	total := len(opStack)
 	if total == 0 {
+		if op == &parenEndOperator {
+			return fmt.Errorf("unexpected operator ')'")
+		}
 		exp.OpStack = append(opStack, op)
 	} else {
 		if op == &parenEndOperator {
@@ -1050,8 +1102,14 @@ func (exp *Expression) addOperatorToOutput(op *OperatorToken) error {
 		var ast IToken
 		if op == &fnCallOperator {
 			// function call
-
+			if fn, isFn := right.(*FunctionCall); isFn {
+				fn.Name = left
+				ast = right
+			} else {
+				return fmt.Errorf("wrong function call")
+			}
 		} else if op == &memberOperator {
+			// array static field
 			if ident, isIdent := right.(*IdentifierToken); isIdent {
 				ast = &ArrayField{
 					Array: left,
@@ -1075,11 +1133,14 @@ func (exp *Expression) addOperatorToOutput(op *OperatorToken) error {
 		output[total-2] = ast
 		exp.Output = exp.Output[:total-1]
 	}
-	fmt.Printf("\noutput:%#v", output[0])
 	return nil
 }
 
-func (exp *Expression) Add(bt byte) (IToken, error) {
+func (exp *Expression) IsEmpty() bool {
+	return len(exp.Output) == 0
+}
+
+func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 	var curToken = exp.CurToken
 	if nextToken, err := curToken.Add(bt, exp); err == nil {
 		// change current token to next
@@ -1092,8 +1153,11 @@ func (exp *Expression) Add(bt byte) (IToken, error) {
 					// '('
 					prevType := exp.CurToken.Type()
 					if prevType == IdentType || prevType == FuncCallType || prevType == ObjPropType || prevType == ArrFieldType {
+						arg := New()
 						// check if function call
-						nextToken = &FunctionCall{}
+						nextToken = &FunctionCall{
+							Args: []*Expression{&arg},
+						}
 						// add function call operator
 						if err = exp.addOperator(&fnCallOperator); err != nil {
 							return &fnCallOperator, err
@@ -1105,7 +1169,10 @@ func (exp *Expression) Add(bt byte) (IToken, error) {
 						nextToken = &ArrayLiteral{}
 					} else {
 						// '[' dynamic array field
-						nextToken = &ArrayField{}
+						dynamicField := New()
+						nextToken = &ArrayField{
+							DynamicField: &dynamicField,
+						}
 						// add the '[' operator
 						if err = exp.addOperator(&bracketOperator); err != nil {
 							return op, err
@@ -1177,7 +1244,7 @@ func (exp *Expression) RawBytes() []byte {
 func (exp *Expression) Eof() error {
 	// add a space make sure end of the expression
 	if !IsSpaceToken(exp.CurToken) {
-		if _, err := exp.Add(BYTE_SPACE); err != nil {
+		if _, err := exp.Add(BYTE_SPACE, exp); err != nil {
 			return err
 		}
 	}
@@ -1213,7 +1280,7 @@ func (exp *Expression) Eof() error {
  */
 func (exp *Expression) Parse(str string) (*Ast, error) {
 	for i := 0; i < len(str); i++ {
-		if _, err := exp.Add(str[i]); err != nil {
+		if _, err := exp.Add(str[i], exp); err != nil {
 			return nil, err
 		}
 	}
