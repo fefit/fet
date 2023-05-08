@@ -4,6 +4,7 @@
 package lexer
 
 import (
+	"bytes"
 	"fmt"
 )
 
@@ -22,6 +23,7 @@ const (
 	ObjPropType
 	ArrFieldType
 	ExpType
+	AstType
 )
 
 const (
@@ -96,6 +98,10 @@ func AddSpaceOrOperatorByte(bt byte) (IToken, error) {
 	// array literal
 	if bt == '[' {
 		return &bracketOperator, nil
+	}
+	// member
+	if bt == '.' {
+		return &memberOperator, nil
 	}
 	// paren
 	if bt == '(' {
@@ -261,10 +267,6 @@ var Operators = []OperatorToken{
 				Priority: 10,
 			},
 		},
-	},
-	{
-		Raw:      []byte("."), // Member Access
-		Priority: 17,
 	}, {
 		Raw:      []byte("&"), // Bitwise And
 		Priority: 7,
@@ -308,6 +310,11 @@ var fnCallOperator = OperatorToken{
 
 var bracketOperator = OperatorToken{
 	Raw:      []byte("["),
+	Priority: 17,
+}
+
+var memberOperator = OperatorToken{
+	Raw:      []byte("."), // Member Access
 	Priority: 17,
 }
 
@@ -857,11 +864,11 @@ func (pipe *PipeFunction) RawBytes() []byte {
  */
 type ObjectProperty struct {
 	Object   IToken
-	Property IdentifierToken
+	Property *IdentifierToken
 	Raw      []byte
 }
 
-func (obj *ObjectProperty) Add(bt byte, prevToken IToken) (IToken, error) {
+func (obj *ObjectProperty) Add(bt byte, exp *Expression) (IToken, error) {
 	return nil, nil
 }
 
@@ -900,13 +907,38 @@ func (arr *ArrayField) End() error {
 }
 
 func (arr *ArrayField) RawBytes() []byte {
-	return arr.Raw
+	var buf = bytes.NewBuffer(arr.Array.RawBytes())
+	if arr.Field != nil {
+		_, _ = buf.Write(arr.Field.RawBytes())
+	} else {
+		_, _ = buf.Write(arr.DynamicField.RawBytes())
+	}
+	return buf.Bytes()
 }
 
+/**
+*
+ */
 type Ast struct {
 	Op    *OperatorToken
 	Left  IToken
 	Right IToken
+}
+
+func (ast *Ast) Add(bt byte, exp *Expression) (IToken, error) {
+	return nil, nil
+}
+
+func (ast *Ast) Type() TokenType {
+	return AstType
+}
+
+func (ast *Ast) End() error {
+	return nil
+}
+
+func (ast *Ast) RawBytes() []byte {
+	return []byte{}
 }
 
 type Expression struct {
@@ -951,7 +983,9 @@ func (exp *Expression) addOperator(op *OperatorToken) error {
 					break
 				}
 				// add to output
-				exp.Output = append(exp.Output, curOp)
+				if err := exp.addOperatorToOutput(curOp); err != nil {
+					return err
+				}
 			}
 			if isPair {
 				exp.OpStack = opStack[:total]
@@ -970,7 +1004,9 @@ func (exp *Expression) addOperator(op *OperatorToken) error {
 				}
 				index = nextIndex
 				// add to output
-				exp.Output = append(exp.Output, curOp)
+				if err := exp.addOperatorToOutput(curOp); err != nil {
+					return err
+				}
 			}
 			if index != total {
 				exp.OpStack = opStack[:index]
@@ -979,7 +1015,67 @@ func (exp *Expression) addOperator(op *OperatorToken) error {
 			exp.OpStack = append(exp.OpStack, op)
 		}
 	}
+	return nil
+}
 
+func (exp *Expression) addOperatorToOutput(op *OperatorToken) error {
+	output := exp.Output
+	total := len(output)
+	if op.Unary {
+		// unary operator
+		if total == 0 {
+			return fmt.Errorf("unexpected unary operator")
+		}
+		lastToken := output[total-1]
+		if len(op.Raw) > 1 {
+			// postfix or prefix ++ --
+			if lastToken.Type() != IdentType {
+				return fmt.Errorf("invalid left-hand side in assignment")
+			}
+		}
+		ast := &Ast{
+			Op: op,
+		}
+		if op.RightToLeft {
+			ast.Right = lastToken
+		} else {
+			ast.Left = lastToken
+		}
+		output[total-1] = ast
+	} else {
+		if total < 2 {
+			return fmt.Errorf("unexpected operator: %s", string(op.Raw))
+		}
+		left, right := output[total-2], output[total-1]
+		var ast IToken
+		if op == &fnCallOperator {
+			// function call
+
+		} else if op == &memberOperator {
+			if ident, isIdent := right.(*IdentifierToken); isIdent {
+				ast = &ArrayField{
+					Array: left,
+					Field: ident,
+				}
+			} else {
+				return fmt.Errorf("unexpect array field")
+			}
+		} else if op == &bracketOperator {
+
+		} else if op == &pipeOperator {
+			// pipe function
+
+		} else {
+			ast = &Ast{
+				Op:    op,
+				Left:  left,
+				Right: right,
+			}
+		}
+		output[total-2] = ast
+		exp.Output = exp.Output[:total-1]
+	}
+	fmt.Printf("\noutput:%#v", output[0])
 	return nil
 }
 
@@ -1063,6 +1159,21 @@ func (exp *Expression) Add(bt byte) (IToken, error) {
 	}
 }
 
+func (exp *Expression) Type() TokenType {
+	return ExpType
+}
+
+func (exp *Expression) End() error {
+	return nil
+}
+
+func (exp *Expression) RawBytes() []byte {
+	return []byte{}
+}
+
+/**
+* End of the expression
+ */
 func (exp *Expression) Eof() error {
 	// add a space make sure end of the expression
 	if !IsSpaceToken(exp.CurToken) {
@@ -1085,17 +1196,21 @@ func (exp *Expression) Eof() error {
 				// unclosed paren operator
 				return fmt.Errorf("unclosed operator '('")
 			}
-			exp.Output = append(exp.Output, curOp)
+			if err := exp.addOperatorToOutput(curOp); err != nil {
+				return err
+			}
 		}
 	}
 	// translate the output to AST
-	for _, p := range exp.Output {
-		fmt.Println()
-		fmt.Printf("%#v", string(p.RawBytes()))
+	if len(exp.Output) != 1 {
+		return fmt.Errorf("wrong expression")
 	}
 	return nil
 }
 
+/**
+* Parse string to AST
+ */
 func (exp *Expression) Parse(str string) (*Ast, error) {
 	for i := 0; i < len(str); i++ {
 		if _, err := exp.Add(str[i]); err != nil {
