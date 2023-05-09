@@ -107,7 +107,7 @@ func TestIdentifierToken(t *testing.T) {
 
 func TestMain(t *testing.T) {
 	exp := New()
-	_, err := exp.Parse("[ a => 1 ]")
+	_, err := exp.Parse("a('b')(1)")
 	assert.Error(t, err)
 	assert.Nil(t, err)
 }

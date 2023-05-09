@@ -6,6 +6,8 @@ package lexer
 import (
 	"bytes"
 	"fmt"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 type TokenType uint8
@@ -135,7 +137,7 @@ func AddSpaceOrOperatorByte(bt byte) (IToken, error) {
 		}
 	}
 	// also not an operator
-	return nil, fmt.Errorf("only allowed operator or space token")
+	return nil, fmt.Errorf("only allowed operator or space token: %s", string(bt))
 }
 
 func AddUnkownTokenByte(bt byte, exp *Expression) (IToken, error) {
@@ -165,8 +167,8 @@ func AddUnkownTokenByte(bt byte, exp *Expression) (IToken, error) {
 	return nil, fmt.Errorf("syntax error: '%s' is not a correct token.", string(bt))
 }
 
-func IsParenOpToken(token IToken) bool {
-	if opToken, isOp := token.(*OperatorToken); isOp && opToken.Op == &parenOperator {
+func IsOpToken(token IToken, op *Operator) bool {
+	if opToken, isOp := token.(*OperatorToken); isOp && opToken.Op == op {
 		return true
 	}
 	return false
@@ -234,6 +236,10 @@ func (op *Operator) FixIfUnary(prevToken IToken) (*Operator, error) {
 		}
 	}
 	return nil, nil
+}
+
+func (op *Operator) IsSureSingleOperator() bool {
+	return len(op.Raw) == 1 && op.NextMaybe == nil
 }
 
 var parenOperator = Operator{
@@ -839,7 +845,7 @@ func (ds *DoubleQuoteStringToken) RawBytes() []byte {
  */
 type ArrayItem struct {
 	Key   IToken
-	Value *Expression
+	Value IToken
 }
 
 type ArrayLiteral struct {
@@ -853,8 +859,7 @@ type ArrayLiteral struct {
 }
 
 func (arr *ArrayLiteral) Add(bt byte, exp *Expression) (IToken, error) {
-	fmt.Println()
-	fmt.Printf("parse in array literal %#v, 状态=>%#v", string(bt), arr.State)
+
 	// first check if is end
 	if arr.IsEnd {
 		return AddSpaceOrOperatorByte(bt)
@@ -870,8 +875,7 @@ func (arr *ArrayLiteral) Add(bt byte, exp *Expression) (IToken, error) {
 		} else {
 			return nil, fmt.Errorf("unexpected token '=%s' in array literal, do you mean '=>'?", string(bt))
 		}
-	case MaybeArrayKey:
-	case InArrayValue:
+	case MaybeArrayKey, InArrayValue:
 		isValue := true
 		if _, err := curExp.Add(bt, exp); err == nil {
 			return nil, nil
@@ -890,24 +894,32 @@ func (arr *ArrayLiteral) Add(bt byte, exp *Expression) (IToken, error) {
 				return nil, fmt.Errorf("unexpecte token '%s' in array literal", string(bt))
 			}
 			if err = curExp.Eof(); err != nil {
-				return nil, err
+				// if the byte is end bracket ']'
+				// should ignore empty array '[]'
+				// or the last array item's end ',', [1,]
+				if arr.IsEnd && !arr.HasKey && curExp.IsEmpty() {
+					return nil, nil
+				} else {
+					return nil, err
+				}
 			}
+			lastToken := curExp.Token()
 			if isValue {
 				// add value
 				if arr.HasKey {
-					arr.Items[len(arr.Items)-1].Value = curExp
+					arr.Items[len(arr.Items)-1].Value = lastToken
 					arr.HasKey = false
 				} else {
 					arr.Items = append(arr.Items, ArrayItem{
-						Value: curExp,
+						Value: lastToken,
 					})
 				}
 			} else {
 				// check if key is allowed type token
-				curType := curExp.Output[0].Type()
+				curType := lastToken.Type()
 				if curType == StrType || curType == NumType || curType == IdentType {
 					arr.Items = append(arr.Items, ArrayItem{
-						Key: curExp,
+						Key: lastToken,
 					})
 				} else {
 					return nil, fmt.Errorf("disallowed key token in array literal")
@@ -935,10 +947,11 @@ func (arr *ArrayLiteral) RawBytes() []byte {
  * e.g => abc(), abc(1+2, "def")
  */
 type FunctionCall struct {
-	IsEnd bool
-	Name  IToken
-	Args  []*Expression
-	Raw   []byte
+	IsEnd  bool
+	Name   IToken
+	Args   []IToken
+	CurArg *Expression
+	Raw    []byte
 }
 
 func (fn *FunctionCall) Add(bt byte, exp *Expression) (IToken, error) {
@@ -947,23 +960,25 @@ func (fn *FunctionCall) Add(bt byte, exp *Expression) (IToken, error) {
 		return AddSpaceOrOperatorByte(bt)
 	}
 	// add byte to cur argument
-	totalArgs := len(fn.Args)
-	curArg := fn.Args[totalArgs-1]
-	if _, err := curArg.Add(bt, curArg); err != nil {
+	curArg := fn.CurArg
+	if nextToken, err := curArg.Add(bt, curArg); err != nil {
 		if bt == ',' {
 			// fn(1,
 			if err = curArg.Eof(); err == nil {
-				fn.Args = append(fn.Args, New())
+				fn.Args = append(fn.Args, curArg.Token())
+				fn.CurArg = New()
 				return nil, nil
 			}
-		} else if opToken, isOp := curArg.getPrevToken().(*OperatorToken); isOp && opToken.Op == &parenEndOperator {
+		} else if IsOpToken(nextToken, &parenEndOperator) {
+			curArg.CurToken = &spaceToken
 			// fn(1, 2)
 			if err = curArg.Eof(); err == nil {
 				fn.IsEnd = true
+				fn.Args = append(fn.Args, curArg.Token())
+				fn.CurArg = nil
 				return nil, nil
 			} else if curArg.IsEmpty() {
 				// fn(1,)
-				fn.Args = fn.Args[:totalArgs-1]
 				fn.IsEnd = true
 				return nil, nil
 			}
@@ -1124,11 +1139,12 @@ func (ast *Ast) RawBytes() []byte {
 }
 
 type Expression struct {
-	PrevToken IToken
-	CurToken  IToken
-	LazyPipe  *OperatorToken
-	OpStack   []*OperatorToken
-	Output    []IToken
+	PrevToken   IToken
+	CurToken    IToken
+	LazyPipe    *OperatorToken
+	ImmediateOp *OperatorToken
+	OpStack     []*OperatorToken
+	Output      []IToken
 }
 
 func New() *Expression {
@@ -1301,8 +1317,6 @@ func (exp *Expression) IsEmpty() bool {
 
 func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 	var curToken = exp.CurToken
-	fmt.Println()
-	fmt.Printf("解析字符%s, 当前token=>%#v", string(bt), curToken)
 	if nextToken, err := curToken.Add(bt, exp); err == nil {
 		// change current token to next
 		// if next token is not nil
@@ -1313,11 +1327,11 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 				op := opToken.Op
 				if op == &parenOperator {
 					// '('
-					prevType := exp.CurToken.Type()
+					prevType := exp.getPrevToken().Type()
 					if prevType == IdentType || prevType == FuncCallType || prevType == ObjPropType || prevType == ArrFieldType {
 						// check if function call
 						nextToken = &FunctionCall{
-							Args: []*Expression{New()},
+							CurArg: New(),
 						}
 						// add function call operator
 						fnOpToken := OperatorToken{
@@ -1326,13 +1340,15 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 						if err = exp.addOperator(&fnOpToken); err != nil {
 							return &fnOpToken, err
 						}
+						exp.PrevToken = &fnOpToken
 					}
 				} else if op == &bracketOperator {
 					// '[', if before is '(' or the beginning, take it as a array literal type
 					prevToken := exp.getPrevToken()
-					if IsParenOpToken(prevToken) || prevToken.Type() == SpaceType {
+					if IsOpToken(prevToken, &parenOperator) || prevToken.Type() == SpaceType {
 						nextToken = &ArrayLiteral{
 							CurExp: New(),
+							State:  MaybeArrayKey,
 						}
 					} else {
 						// '[' computed array field
@@ -1346,10 +1362,18 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 						if err = exp.addOperator(&bracketOpToken); err != nil {
 							return opToken, err
 						}
+						exp.PrevToken = &bracketOpToken
 					}
 				} else if IsPipeOpToken(opToken) {
 					// | operator should judge lazy
 					exp.LazyPipe = opToken
+				} else if op.IsSureSingleOperator() {
+					fmt.Println("IMMEDIATE====>")
+					fmt.Printf("op====> %s", string(op.Raw))
+					fmt.Println()
+					exp.ImmediateOp = opToken
+
+					spew.Dump(exp)
 				}
 			} else if exp.LazyPipe != nil && nextToken.Type() != SpaceType {
 				if ident, isIdent := nextToken.(*IdentifierToken); isIdent && !ident.IsVariable {
@@ -1382,8 +1406,10 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 							return nil, fmt.Errorf("Unexpected token '%s'", string(op.Raw))
 						}
 					}
-					// only not lazy pipe op added to the op stack
-					if exp.LazyPipe == nil && !isLazyPipeAdded {
+					// only not lazy pipe and not immediate op added to the op stack
+					if exp.ImmediateOp != nil {
+						exp.ImmediateOp = nil
+					} else if exp.LazyPipe == nil && !isLazyPipeAdded {
 						if err = exp.addOperator(opToken); err != nil {
 							return opToken, err
 						}
@@ -1395,12 +1421,19 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 				// set prev token
 				exp.PrevToken = curToken
 			}
+			// immediate op
+			if exp.ImmediateOp != nil {
+				curOpToken := exp.ImmediateOp
+				if err = exp.addOperator(curOpToken); err != nil {
+					return curOpToken, err
+				}
+
+			}
 			// set current token
 			exp.CurToken = nextToken
 		}
 		return exp.CurToken, nil
 	} else {
-
 		return nil, err
 	}
 }
@@ -1421,6 +1454,8 @@ func (exp *Expression) RawBytes() []byte {
 * End of the expression
  */
 func (exp *Expression) Eof() error {
+	fmt.Println("执行===>eof===>output===>")
+	spew.Dump(exp)
 	// add a space make sure end of the expression
 	if !IsSpaceToken(exp.CurToken) {
 		if _, err := exp.Add(BYTE_SPACE, exp); err != nil {
@@ -1451,7 +1486,12 @@ func (exp *Expression) Eof() error {
 	if len(exp.Output) != 1 {
 		return fmt.Errorf("wrong expression")
 	}
+
 	return nil
+}
+
+func (exp *Expression) Token() IToken {
+	return exp.Output[0]
 }
 
 /**
