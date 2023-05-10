@@ -112,7 +112,7 @@ func TestDoubleStringToken(t *testing.T) {
 
 func TestMain(t *testing.T) {
 	exp := New()
-	_, err := exp.Parse("\"abc`$a + 1`\"")
+	_, err := exp.Parse("(123 + 5)|counter:1| ($a1 + 3)")
 	assert.Error(t, err)
 	assert.Nil(t, err)
 }

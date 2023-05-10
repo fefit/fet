@@ -1095,21 +1095,67 @@ func (fn *FunctionCall) RawBytes() []byte {
 *
  */
 type PipeFunction struct {
+	CurArg *Expression
 	Name   *IdentifierToken
 	Args   []IToken
-	CurArg *Expression
 	Raw    []byte
 }
 
 func (pipe *PipeFunction) Add(bt byte, exp *Expression) (IToken, error) {
-	if pipe.CurArg != nil {
-
+	curArg := pipe.CurArg
+	if curArg != nil {
+		if errToken, err := curArg.Add(bt, curArg); err == nil {
+			opStack := curArg.OpStack
+			if len(opStack) == 1 {
+				opToken := opStack[0]
+				isPipe := opToken.Op == &pipeOperator
+				if isPipe || opToken.Op.Priority < pipeOperator.Priority {
+					// save curArg's token to exp's cur token
+					curArgToken := curArg.CurToken
+					// remove the operator from cur arg expression
+					curArg.OpStack = opStack[:0]
+					// ignore cur arg's cur token
+					curArg.CurToken = &spaceToken
+					if err = curArg.Eof(); err != nil {
+						return curArg, err
+					}
+					pipe.Args = append(pipe.Args, curArg.Token())
+					pipe.CurArg = nil
+					// set prev token
+					if isPipe {
+						exp.Output = append(exp.Output, pipe)
+						if nextToken, err := exp.addConvertOp(&pipeOperator); err != nil {
+							return nextToken, err
+						}
+					} else {
+						exp.Output = append(exp.Output, pipe)
+						if err = exp.addOperator(opToken); err != nil {
+							return opToken, err
+						}
+						exp.PrevToken = opToken
+					}
+					exp.CurToken = curArgToken
+					return nil, nil
+				}
+			}
+			return nil, nil
+		} else {
+			if bt == ':' {
+				if err = curArg.Eof(); err == nil {
+					pipe.Args = append(pipe.Args, curArg.Token())
+					pipe.CurArg = New()
+					return nil, nil
+				}
+			}
+			return errToken, err
+		}
 	}
-	if nextToken, err := pipe.Name.Add(bt, exp); err != nil {
+	// still in function name
+	if errToken, err := pipe.Name.Add(bt, exp); err != nil {
 		if bt == ':' {
 			pipe.CurArg = New()
 		} else {
-			return nextToken, nil
+			return errToken, nil
 		}
 	}
 	return nil, nil
@@ -1120,6 +1166,14 @@ func (pipe *PipeFunction) Type() TokenType {
 }
 
 func (pipe *PipeFunction) End() error {
+	curArg := pipe.CurArg
+	if curArg != nil {
+		if err := curArg.Eof(); err != nil {
+			return err
+		}
+		pipe.Args = append(pipe.Args, curArg.Token())
+		pipe.CurArg = nil
+	}
 	return nil
 }
 
@@ -1431,7 +1485,7 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 					}
 					exp.CurToken = nextToken
 					exp.LazyPipe = nil
-					return nextToken.Add(bt, exp)
+					return nextToken, nil
 				} else {
 					// add bitwise |
 					if err := exp.addOperator(exp.LazyPipe); err != nil {
@@ -1440,7 +1494,7 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 					// set cur token
 					exp.CurToken = nextToken
 					// jump next steps
-					return nil, nil
+					return nextToken, nil
 				}
 			}
 			// check other condition
@@ -1496,7 +1550,8 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 							if errToken, err := exp.addConvertOp(&pipeOperator); err != nil {
 								return errToken, err
 							}
-							isConvOp = true
+							exp.CurToken = nextToken
+							return nextToken, nil
 						}
 					} else if nextType == SpaceType {
 						// space token need lazy check
@@ -1504,7 +1559,7 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 						// reset prev and cur token
 						exp.PrevToken = curToken
 						exp.CurToken = nextToken
-						return nil, nil
+						return nextToken, nil
 					}
 				}
 				// if is convert op
@@ -1514,7 +1569,7 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 					return nextToken.Add(bt, exp)
 				}
 				// check if repeated non unary operators
-				if !op.Unary {
+				if !op.Unary && op != &parenOperator && op != &bracketOperator {
 					if prevOpToken, prevIsOp := exp.PrevToken.(*OperatorToken); prevIsOp && !prevOpToken.Op.Unary {
 						return nil, fmt.Errorf("unexpected operator token '%s'", string(op.Raw))
 					}
@@ -1568,6 +1623,10 @@ func (exp *Expression) Eof() error {
 		// check if the last token is end
 		if err := curToken.End(); err != nil {
 			return err
+		}
+		// pipe function need add to output
+		if curToken.Type() == PipeFuncType {
+			exp.Output = append(exp.Output, curToken)
 		}
 	}
 	// output all the operators still left in op stack
