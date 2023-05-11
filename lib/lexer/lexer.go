@@ -34,6 +34,18 @@ const (
 	BYTE_SPACE      = ' '
 )
 
+var KEYWORDS = [][]byte{
+	[]byte("true"),
+	[]byte("false"),
+	[]byte("break"),
+	[]byte("continue"),
+	[]byte("if"),
+	[]byte("elseif"),
+	[]byte("for"),
+	[]byte("foreach"),
+	[]byte("as"),
+}
+
 const (
 	HexBase     NumberBase = 16
 	OctalBase   NumberBase = 8
@@ -43,7 +55,6 @@ const (
 
 const (
 	MaybeArrayKey ArrayInState = iota
-	WaitGreatThan
 	InArrayValue
 )
 
@@ -135,6 +146,13 @@ func IsPipeOpToken(token IToken) bool {
 	return false
 }
 
+func IsEqualOpToken(token IToken) bool {
+	if opToken, isOp := token.(*OperatorToken); isOp && opToken.Op == &equalOperator && opToken.Index == 0 {
+		return true
+	}
+	return false
+}
+
 func AddSpaceOrOperatorByte(bt byte) (IToken, error) {
 	if IsSpaceByte(bt) {
 		return &SpaceToken{
@@ -163,6 +181,12 @@ func AddSpaceOrOperatorByte(bt byte) (IToken, error) {
 	if bt == ')' {
 		return &OperatorToken{
 			Op: &parenEndOperator,
+		}, nil
+	}
+	// equal
+	if bt == '=' {
+		return &OperatorToken{
+			Op: &equalOperator,
 		}, nil
 	}
 	// operators
@@ -291,6 +315,11 @@ var pipeOperator = Operator{
 	Priority: 17,
 }
 
+var equalOperator = Operator{
+	Raw:      []byte("=="), // Equal
+	Priority: 8,
+}
+
 var operatorList = []Operator{
 	{
 		Raw:      []byte("+"), // Addition
@@ -344,7 +373,8 @@ var operatorList = []Operator{
 	{
 		Raw:      []byte("/"), // Division
 		Priority: 12,
-	}, {
+	},
+	{
 		Raw:      []byte("%"), // Remainder
 		Priority: 12,
 	},
@@ -433,9 +463,13 @@ func (token *OperatorToken) Add(bt byte, exp *Expression) (IToken, error) {
 	nextIndex := token.Index + 1
 	totalByteLen := len(op.Raw)
 	// check if is still matched in current operator
-	if nextIndex < totalByteLen && op.Raw[nextIndex] == bt {
-		token.Index = nextIndex
-		return nil, nil
+	if nextIndex < totalByteLen {
+		if op.Raw[nextIndex] == bt {
+			token.Index = nextIndex
+			return nil, nil
+		} else if op.NextMaybe == nil {
+			return token, fmt.Errorf("unexpected operator '%s%s', do you mean '%s'?", string(op.Raw[:nextIndex]), string(bt), string(op.Raw))
+		}
 	}
 	// check the next operators
 	nextOp := op
@@ -464,6 +498,10 @@ func (token *OperatorToken) Add(bt byte, exp *Expression) (IToken, error) {
 				return nil, err
 			}
 		}
+	}
+	// check if token is end
+	if err := token.End(); err != nil {
+		return token, err
 	}
 	// fix the unary token
 	if unaryToken, err := op.FixIfUnary(exp.PrevToken); err == nil {
@@ -706,14 +744,15 @@ func (num *NumberToken) RawBytes() []byte {
  * Identifier token, e.g $a abc a123
  */
 type IdentifierToken struct {
-	IsVariable bool
-	Raw        []byte
+	IsKeyword bool
+	IsVar     bool
+	Raw       []byte
 }
 
 func (id *IdentifierToken) Add(bt byte, exp *Expression) (IToken, error) {
 	if len(id.Raw) == 0 {
 		if bt == '$' {
-			id.IsVariable = true
+			id.IsVar = true
 		} else {
 			if bt == BYTE_UNDERSCORE || IsAlphaByte(bt) {
 				// allowed identifier bytes
@@ -727,7 +766,7 @@ func (id *IdentifierToken) Add(bt byte, exp *Expression) (IToken, error) {
 			// ok
 		} else {
 			// check if is variable and only a $
-			if len(id.Raw) == 1 && id.IsVariable {
+			if len(id.Raw) == 1 && id.IsVar {
 				return nil, fmt.Errorf("wrong variable $")
 			}
 			// next only allow space or operator
@@ -951,71 +990,65 @@ type ArrayLiteral struct {
 	Raw    []byte
 }
 
-func (arr *ArrayLiteral) Add(bt byte, exp *Expression) (IToken, error) {
+func (arr *ArrayLiteral) Add(bt byte, _ *Expression) (IToken, error) {
+	fmt.Printf("\n字符=>%s|%#v", string(bt), arr.CurExp.CurToken.Type())
 	// first check if is end
 	if arr.IsEnd {
 		return AddSpaceOrOperatorByte(bt)
 	}
 	// array state
 	curExp := arr.CurExp
-	switch arr.State {
-	case WaitGreatThan:
-		if bt == '>' {
+	if _, err := curExp.Add(bt, curExp); err == nil {
+		return nil, nil
+	} else {
+		isValue := true
+		if bt == ']' {
+			// end of array
+			arr.IsEnd = true
+		} else if bt == ',' {
+			// new array item
+			arr.CurExp = New()
+		} else if arr.State == MaybeArrayKey && IsEqualOpToken(curExp.CurToken) && bt == '>' {
+			// when '=>'
+			curExp.CurToken = &spaceToken
+			isValue = false
+			arr.HasKey = true
 			arr.State = InArrayValue
 			arr.CurExp = New()
-			return nil, nil
 		} else {
-			return nil, fmt.Errorf("unexpected token '=%s' in array literal, do you mean '=>'?", string(bt))
+			return nil, fmt.Errorf("unexpecte token '%s' in array literal", string(bt))
 		}
-	case MaybeArrayKey, InArrayValue:
-		isValue := true
-		if _, err := curExp.Add(bt, exp); err == nil {
-			return nil, nil
+		if err = curExp.Eof(); err != nil {
+			// if the byte is end bracket ']'
+			// should ignore empty array '[]'
+			// or the last array item's end ',', [1,]
+			if arr.IsEnd && !arr.HasKey && curExp.IsEmpty() {
+				return nil, nil
+			} else {
+				return nil, err
+			}
+		}
+		lastToken := curExp.Token()
+		if isValue {
+			// add value
+			if arr.HasKey {
+				arr.Items[len(arr.Items)-1].Value = lastToken
+				arr.HasKey = false
+			} else {
+				arr.Items = append(arr.Items, ArrayItem{
+					Value: lastToken,
+				})
+			}
+			arr.State = MaybeArrayKey
 		} else {
-			if bt == ']' {
-				// end of array
-				arr.IsEnd = true
-			} else if bt == ',' {
-				// new array item
-				arr.CurExp = New()
-			} else if arr.State == MaybeArrayKey && bt == '=' {
-				isValue = false
-				arr.HasKey = true
-				arr.State = WaitGreatThan
+			// check if key is allowed type token
+			curType := lastToken.Type()
+			if curType == StrType || curType == NumType || curType == IdentType {
+				arr.Items = append(arr.Items, ArrayItem{
+					Key: lastToken,
+				})
 			} else {
-				return nil, fmt.Errorf("unexpecte token '%s' in array literal", string(bt))
-			}
-			if err = curExp.Eof(); err != nil {
-				// if the byte is end bracket ']'
-				// should ignore empty array '[]'
-				// or the last array item's end ',', [1,]
-				if arr.IsEnd && !arr.HasKey && curExp.IsEmpty() {
-					return nil, nil
-				} else {
-					return nil, err
-				}
-			}
-			lastToken := curExp.Token()
-			if isValue {
-				// add value
-				if arr.HasKey {
-					arr.Items[len(arr.Items)-1].Value = lastToken
-					arr.HasKey = false
-				} else {
-					arr.Items = append(arr.Items, ArrayItem{
-						Value: lastToken,
-					})
-				}
-			} else {
-				// check if key is allowed type token
-				curType := lastToken.Type()
-				if curType == StrType || curType == NumType || curType == IdentType {
-					arr.Items = append(arr.Items, ArrayItem{
-						Key: lastToken,
-					})
-				} else {
-					return nil, fmt.Errorf("disallowed key token in array literal")
-				}
+				return nil, fmt.Errorf("disallowed key token in array literal")
 			}
 		}
 	}
@@ -1474,7 +1507,7 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 			// first do with lazy pipe
 			if exp.LazyPipe != nil {
 				// cur token is space token, and next token must be non space token
-				if ident, isIdent := nextToken.(*IdentifierToken); isIdent && !ident.IsVariable {
+				if ident, isIdent := nextToken.(*IdentifierToken); isIdent && !ident.IsVar {
 					// pipe function
 					nextToken = &PipeFunction{
 						Name: ident,
@@ -1541,7 +1574,7 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 					nextType := nextToken.Type()
 					if nextType == IdentType {
 						ident := nextToken.(*IdentifierToken)
-						if !ident.IsVariable {
+						if !ident.IsVar {
 							// pipe function
 							nextToken = &PipeFunction{
 								Name: ident,
@@ -1660,14 +1693,14 @@ func (exp *Expression) Token() IToken {
 /**
 * Parse string to AST
  */
-func (exp *Expression) Parse(str string) (*Ast, error) {
+func (exp *Expression) Parse(str string) (IToken, error) {
 	for i := 0; i < len(str); i++ {
-		if _, err := exp.Add(str[i], exp); err != nil {
-			return nil, err
+		if errToken, err := exp.Add(str[i], exp); err != nil {
+			return errToken, err
 		}
 	}
 	if err := exp.Eof(); err != nil {
-		return nil, err
+		return exp.CurToken, err
 	}
-	return &Ast{}, nil
+	return exp.Token(), nil
 }

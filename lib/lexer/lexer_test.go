@@ -6,113 +6,132 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func parseToken(str string, token IToken) (IToken, error) {
-	var t IToken
-	var err error
-	for i := 0; i < len(str); i++ {
-		if t, err = token.Add(str[i], nil); err != nil {
-			return t, err
-		}
-	}
-	return t, err
+func parseAst(str string) (IToken, error) {
+	return New().Parse(str)
 }
 
-func parseTokenError(str string, token IToken) error {
-	_, err := parseToken(str, token)
-	return err
+func isTokenType(str string, tokenType TokenType) bool {
+	if token, err := parseAst(str); err == nil {
+		return token.Type() == tokenType
+	}
+	return false
 }
 
-func parseTokenNext(str string, token IToken) IToken {
-	if nextToken, err := parseToken(str, token); err == nil {
-		return nextToken
+func isWrongTokenType(str string, tokenType TokenType) bool {
+	exp := New()
+	if _, err := exp.Parse(str); err != nil && exp.CurToken.Type() == tokenType {
+		return true
 	}
-	return nil
+	return false
 }
+
 func TestNumberToken(t *testing.T) {
+	var isNumber = func(str string) bool {
+		return isTokenType(str, NumType)
+	}
+	var isWrongNumber = func(str string) bool {
+		return isWrongTokenType(str, NumType)
+	}
 	// ----------integer--------
-	assert.Nil(t, parseTokenError("0", Number()))
-	assert.Nil(t, parseTokenError("9", Number()))
-	assert.Nil(t, parseTokenError("3", Number()))
-	assert.Nil(t, parseTokenError("520", Number()))
-	assert.Nil(t, parseTokenError("5_20", Number()))
-	assert.Nil(t, parseTokenError("52_0", Number()))
-	assert.Nil(t, parseTokenError("5_2_0", Number()))
-	assert.Error(t, parseTokenError("5__2_0", Number()))
-	assert.Error(t, parseTokenError("5_2_0_ ", Number()))
+	assert.True(t, isNumber("0"))
+	assert.True(t, isNumber("9"))
+	assert.True(t, isNumber("3"))
+	assert.True(t, isNumber("520"))
+	assert.True(t, isNumber("5_20"))
+	assert.True(t, isNumber("52_0"))
+	assert.True(t, isNumber("5_2_0"))
+	// wrong integer
+	assert.True(t, isWrongNumber("5__2_0"))
+	assert.True(t, isWrongNumber("5_2_0_"))
 	// float
-	assert.Nil(t, parseTokenError("0.3", Number()))
-	assert.Nil(t, parseTokenError("9.275_2", Number()))
-	assert.Nil(t, parseTokenError("3.12", Number()))
-	assert.Nil(t, parseTokenError("520.5_3", Number()))
-	assert.Nil(t, parseTokenError("5_20.1_2_3", Number()))
-	assert.Nil(t, parseTokenError("52_0.87", Number()))
-	assert.Nil(t, parseTokenError("5_2_0.12_3", Number()))
-	assert.Error(t, parseTokenError("1_3._1", Number()))
-	assert.Error(t, parseTokenError("1_3.1__1 ", Number()))
-	assert.Error(t, parseTokenError("1_3.1_ ", Number()))
+	assert.True(t, isNumber("0.3"))
+	assert.True(t, isNumber("9.275_2"))
+	assert.True(t, isNumber("3.12"))
+	assert.True(t, isNumber("520.5_3"))
+	assert.True(t, isNumber("5_20.1_2_3"))
+	assert.True(t, isNumber("52_0.87"))
+	assert.True(t, isNumber("5_2_0.12_3"))
+	assert.True(t, isWrongNumber("1_3._1"))
+	assert.True(t, isWrongNumber("1_3.1__1 "))
+	assert.True(t, isWrongNumber("1_3.1_"))
+	// -------------------
 	// exponent
-	assert.Nil(t, parseTokenError("0.3e1", Number()))
-	assert.Nil(t, parseTokenError("9.275_2E-1", Number()))
-	assert.Nil(t, parseTokenError("3.1_2e+00_1", Number()))
-	assert.Nil(t, parseTokenError("12E10", Number()))
-	assert.Nil(t, parseTokenError("1_2E1_8", Number()))
-	assert.Error(t, parseTokenError("1_e1", Number()))
-	assert.Error(t, parseTokenError("1_3.e1", Number()))
-	assert.Error(t, parseTokenError("1_3.1_e1", Number()))
-	assert.Error(t, parseTokenError("1_3.e_1", Number()))
-	assert.Error(t, parseTokenError("1_3.e-_1", Number()))
-	assert.Error(t, parseTokenError("1_3.e+_1", Number()))
-	assert.Error(t, parseTokenError("1_3.e+1_ ", Number()))
+	assert.True(t, isNumber("0.3e1"))
+	assert.True(t, isNumber("9.275_2E-1"))
+	assert.True(t, isNumber("3.1_2e+00_1"))
+	assert.True(t, isNumber("12E10"))
+	assert.True(t, isNumber("1_2E1_8"))
+	// wrong exponent
+	assert.True(t, isWrongNumber("1_e1"))
+	assert.True(t, isWrongNumber("1_3.e1"))
+	assert.True(t, isWrongNumber("1_3.1_e1"))
+	assert.True(t, isWrongNumber("1_3.e_1"))
+	assert.True(t, isWrongNumber("1_3.e-_1"))
+	assert.True(t, isWrongNumber("1_3.e+_1"))
+	assert.True(t, isWrongNumber("1_3.e+1_"))
 	// binary number
-	assert.Nil(t, parseTokenError("0b1", Number()))
-	assert.Nil(t, parseTokenError("0b101", Number()))
-	assert.Nil(t, parseTokenError("0b1_01", Number()))
-	assert.Nil(t, parseTokenError("0b1_0_1", Number()))
-	assert.Nil(t, parseTokenError("0B1", Number()))
-	assert.Nil(t, parseTokenError("0B101", Number()))
+	assert.True(t, isNumber("0b1"))
+	assert.True(t, isNumber("0b101"))
+	assert.True(t, isNumber("0b1_01"))
+	assert.True(t, isNumber("0b1_0_1"))
+	assert.True(t, isNumber("0B1"))
+	assert.True(t, isNumber("0B101"))
 	// octal number
-	assert.Nil(t, parseTokenError("01", Number()))
-	assert.Nil(t, parseTokenError("001", Number()))
-	assert.Nil(t, parseTokenError("0_01", Number()))
-	assert.Nil(t, parseTokenError("0_0_1", Number()))
-	assert.Nil(t, parseTokenError("0o1067", Number()))
-	assert.Nil(t, parseTokenError("0o1_06_7", Number()))
-	assert.Nil(t, parseTokenError("0o755", Number()))
-	assert.Nil(t, parseTokenError("0O362", Number()))
-	assert.Nil(t, parseTokenError("0O577", Number()))
+	assert.True(t, isNumber("01"))
+	assert.True(t, isNumber("001"))
+	assert.True(t, isNumber("0_01"))
+	assert.True(t, isNumber("0_0_1"))
+	assert.True(t, isNumber("0o1067"))
+	assert.True(t, isNumber("0o1_06_7"))
+	assert.True(t, isNumber("0o755"))
+	assert.True(t, isNumber("0O362"))
+	assert.True(t, isNumber("0O577"))
 	// hex number
-	assert.Nil(t, parseTokenError("0x19f", Number()))
-	assert.Nil(t, parseTokenError("0xff_f", Number()))
-	assert.Nil(t, parseTokenError("0x1a_F_c", Number()))
-	assert.Nil(t, parseTokenError("0x3_e_1", Number()))
-	assert.Nil(t, parseTokenError("0X1_9_F", Number()))
-	assert.Nil(t, parseTokenError("0X302f", Number()))
+	assert.True(t, isNumber("0x19f"))
+	assert.True(t, isNumber("0xff_f"))
+	assert.True(t, isNumber("0x1a_F_c"))
+	assert.True(t, isNumber("0x3_e_1"))
+	assert.True(t, isNumber("0X1_9_F"))
+	assert.True(t, isNumber("0X302f"))
 }
 
 func TestIdentifierToken(t *testing.T) {
+	var isIdent = func(str string) bool {
+		return isTokenType(str, IdentType)
+	}
+	var isWrongIdent = func(str string) bool {
+		return isWrongTokenType(str, IdentType)
+	}
 	// identifer
-	assert.Nil(t, parseTokenError("$a", &IdentifierToken{}))
-	assert.Nil(t, parseTokenError("$0", &IdentifierToken{}))
-	assert.Nil(t, parseTokenError("$_", &IdentifierToken{}))
-	assert.Nil(t, parseTokenError("_a", &IdentifierToken{}))
-	assert.Nil(t, parseTokenError("_", &IdentifierToken{}))
-	assert.Nil(t, parseTokenError("a", &IdentifierToken{}))
-	assert.Nil(t, parseTokenError("a1", &IdentifierToken{}))
-	assert.Nil(t, parseTokenError("z_", &IdentifierToken{}))
-	assert.Nil(t, parseTokenError("Z_1", &IdentifierToken{}))
-	assert.Error(t, parseTokenError("$ ", &IdentifierToken{}))
-	assert.Error(t, parseTokenError("0a", &IdentifierToken{}))
-	assert.Error(t, parseTokenError("*a", &IdentifierToken{}))
+	assert.True(t, isIdent("$a"))
+	assert.True(t, isIdent("$0"))
+	assert.True(t, isIdent("$_"))
+	assert.True(t, isIdent("_a"))
+	assert.True(t, isIdent("_"))
+	assert.True(t, isIdent("a"))
+	assert.True(t, isIdent("a1"))
+	assert.True(t, isIdent("z_"))
+	assert.True(t, isIdent("Z_1"))
+	assert.True(t, isWrongIdent("$"))
+	assert.True(t, isWrongIdent("0a"))
+	assert.True(t, isWrongIdent("*a"))
 }
 
 func TestDoubleStringToken(t *testing.T) {
+	var isString = func(str string) bool {
+		return isTokenType(str, StrType)
+	}
+	var isWrongString = func(str string) bool {
+		return isWrongTokenType(str, StrType)
+	}
 	// double string
-	assert.Nil(t, parseTokenError("abc\"", DoubleQuoteString()))
+	assert.True(t, isString("\"abc\""))
+	assert.True(t, isWrongString("\"abc"))
 }
 
 func TestMain(t *testing.T) {
 	exp := New()
-	_, err := exp.Parse("(123 + 5)|counter:1| ($a1 + 3)")
+	_, err := exp.Parse("['a' => 1, true => 'ed']")
 	assert.Error(t, err)
 	assert.Nil(t, err)
 }
