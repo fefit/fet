@@ -320,6 +320,15 @@ var equalOperator = Operator{
 	Priority: 8,
 }
 
+var bitorOperator = Operator{
+	Raw:      []byte("|"), // Bitwise Or
+	Priority: 5,
+	NextMaybe: &Operator{
+		Raw:      []byte("||"), // Logic Or
+		Priority: 3,
+	},
+}
+
 var operatorList = []Operator{
 	{
 		Raw:      []byte("+"), // Addition
@@ -427,14 +436,8 @@ var operatorList = []Operator{
 		Raw:      []byte("^"), // Bitwise XOR
 		Priority: 6,
 	},
-	{
-		Raw:      []byte("|"), // Bitwise Or
-		Priority: 5,
-		NextMaybe: &Operator{
-			Raw:      []byte("||"), // Logic Or
-			Priority: 3,
-		},
-	},
+	// bitor operator
+	bitorOperator,
 }
 
 /**
@@ -782,6 +785,15 @@ func (id *IdentifierToken) Type() TokenType {
 }
 
 func (id *IdentifierToken) End() error {
+	if !id.IsVar {
+		curBytes := id.Raw
+		for _, keyword := range KEYWORDS {
+			if IsSameBytes(curBytes, keyword) {
+				id.IsKeyword = true
+				break
+			}
+		}
+	}
 	return nil
 }
 
@@ -991,7 +1003,6 @@ type ArrayLiteral struct {
 }
 
 func (arr *ArrayLiteral) Add(bt byte, _ *Expression) (IToken, error) {
-	fmt.Printf("\n字符=>%s|%#v", string(bt), arr.CurExp.CurToken.Type())
 	// first check if is end
 	if arr.IsEnd {
 		return AddSpaceOrOperatorByte(bt)
@@ -1320,7 +1331,7 @@ func (ast *Ast) RawBytes() []byte {
 type Expression struct {
 	PrevToken   IToken
 	CurToken    IToken
-	LazyPipe    *OperatorToken
+	LazyPipe    IToken
 	ImmediateOp *OperatorToken
 	OpStack     []*OperatorToken
 	Output      []IToken
@@ -1504,31 +1515,68 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 		// if next token is not nil
 		// current token is end
 		if nextToken != nil {
-			// first do with lazy pipe
+			// validate if cur token is end ok
+			if err = curToken.End(); err != nil {
+				return curToken, err
+			}
+			// check if lazy pipe exist
 			if exp.LazyPipe != nil {
-				// cur token is space token, and next token must be non space token
-				if ident, isIdent := nextToken.(*IdentifierToken); isIdent && !ident.IsVar {
-					// pipe function
-					nextToken = &PipeFunction{
-						Name: ident,
+				lazyPipe := exp.LazyPipe
+				isPipeFunc := false
+				if lazyPipe == &spaceToken {
+					// prev is space
+					// if current is identifier, go on the lazy pipe
+					// otherwise take the op as bitwise |
+					if _, isIdent := nextToken.(*IdentifierToken); isIdent {
+						exp.LazyPipe = nextToken
+						exp.CurToken = nextToken
+						return nextToken, nil
 					}
-					// add the '|' pipe operator
-					if errToken, err := exp.addConvertOp(&pipeOperator); err != nil {
+					// add bitwise |
+					if errToken, err := exp.addConvertOp(&bitorOperator); err != nil {
 						return errToken, err
 					}
-					exp.CurToken = nextToken
-					exp.LazyPipe = nil
-					return nextToken, nil
 				} else {
-					// add bitwise |
-					if err := exp.addOperator(exp.LazyPipe); err != nil {
-						return exp.LazyPipe, err
+					ident := curToken.(*IdentifierToken)
+					isBitwise := ident.IsKeyword || ident.IsVar
+					if isBitwise {
+						// add bitwise |
+						bitorToken := OperatorToken{
+							Op: &bitorOperator,
+						}
+						if err := exp.addOperator(&bitorToken); err != nil {
+							return &bitorToken, err
+						}
+						// add cur identity token to output
+						exp.Output = append(exp.Output, curToken)
+					} else {
+						// cur identity token is name
+						nextToken = &PipeFunction{
+							Name: ident,
+						}
+						pipeToken := OperatorToken{
+							Op: &pipeOperator,
+						}
+						// add the '|' pipe operator
+						if err := exp.addOperator(&pipeToken); err != nil {
+							return &pipeToken, err
+						}
+						// should delegate cur byte to new token
+						isPipeFunc = true
 					}
-					// set cur token
-					exp.CurToken = nextToken
-					// jump next steps
-					return nextToken, nil
+					// set prev token
+					exp.PrevToken = curToken
 				}
+				// remove lazy pipe
+				exp.LazyPipe = nil
+				// set cur token to new next token
+				exp.CurToken = nextToken
+				// check if is pipe func
+				if isPipeFunc {
+					// add cur byte to pipe function
+					return nextToken.Add(bt, exp)
+				}
+				return nextToken, nil
 			}
 			// check other condition
 			if opToken, isOp := curToken.(*OperatorToken); isOp {
@@ -1573,27 +1621,21 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 					// operator |
 					nextType := nextToken.Type()
 					if nextType == IdentType {
-						ident := nextToken.(*IdentifierToken)
-						if !ident.IsVar {
-							// pipe function
-							nextToken = &PipeFunction{
-								Name: ident,
-							}
-							// add the '|' operator
-							if errToken, err := exp.addConvertOp(&pipeOperator); err != nil {
-								return errToken, err
-							}
-							exp.CurToken = nextToken
-							return nextToken, nil
+						exp.LazyPipe = nextToken
+						if !IsSpaceToken(curToken) {
+							exp.PrevToken = curToken
 						}
+						exp.CurToken = nextToken
+						return nextToken, nil
 					} else if nextType == SpaceType {
 						// space token need lazy check
-						exp.LazyPipe = opToken
+						exp.LazyPipe = &spaceToken
 						// reset prev and cur token
 						exp.PrevToken = curToken
 						exp.CurToken = nextToken
 						return nextToken, nil
 					}
+					// otherwise add bitwise |
 				}
 				// if is convert op
 				if isConvOp {
@@ -1649,12 +1691,12 @@ func (exp *Expression) RawBytes() []byte {
 func (exp *Expression) Eof() error {
 	curToken := exp.CurToken
 	if !IsSpaceToken(curToken) {
-		// add a space make sure end of the expression
-		if _, err := exp.Add(BYTE_SPACE, exp); err != nil {
-			return err
-		}
 		// check if the last token is end
 		if err := curToken.End(); err != nil {
+			return err
+		}
+		// add a space make sure end of the expression
+		if _, err := exp.Add(BYTE_SPACE, exp); err != nil {
 			return err
 		}
 		// pipe function need add to output
