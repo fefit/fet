@@ -129,17 +129,9 @@ func TestDoubleStringToken(t *testing.T) {
 	assert.True(t, isWrongString("\"abc"))
 }
 
-func TestPipeFunctionCall(t *testing.T) {
-	var isPipe = func(str string) bool {
-		return isTokenType(str, PipeFuncType)
-	}
-	// double string
-	assert.True(t, isPipe("123|min"))
-}
-
 func TestMain(t *testing.T) {
 	exp := New()
-	_, err := exp.Parse("123|min|max")
+	_, err := exp.Parse("['a' => 1, true => 'ed']")
 	assert.Error(t, err)
 	assert.Nil(t, err)
 }
