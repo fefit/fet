@@ -113,8 +113,8 @@ func TestIdentifierToken(t *testing.T) {
 	assert.True(t, isIdent("z_"))
 	assert.True(t, isIdent("Z_1"))
 	assert.True(t, isWrongIdent("$"))
-	assert.True(t, isWrongIdent("0a"))
-	assert.True(t, isWrongIdent("*a"))
+	assert.False(t, isIdent("0a"))
+	assert.False(t, isIdent("*a"))
 }
 
 func TestDoubleStringToken(t *testing.T) {
@@ -129,9 +129,20 @@ func TestDoubleStringToken(t *testing.T) {
 	assert.True(t, isWrongString("\"abc"))
 }
 
+func TestArrayLiteral(t *testing.T) {
+	var isArray = func(str string) bool {
+		return isTokenType(str, ArrLitType)
+	}
+	// array literal
+	assert.True(t, isArray("[]"))
+	assert.True(t, isArray("[1]"))
+	assert.True(t, isArray("[1,]"))
+	assert.True(t, isArray("[1 => 3,]"))
+}
+
 func TestMain(t *testing.T) {
 	exp := New()
-	_, err := exp.Parse("['a' => 1, true => 'ed']")
+	_, err := exp.Parse("[]")
 	assert.Error(t, err)
 	assert.Nil(t, err)
 }
