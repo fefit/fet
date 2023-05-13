@@ -6,6 +6,8 @@ package lexer
 import (
 	"bytes"
 	"fmt"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 type TokenType uint8
@@ -28,20 +30,15 @@ const (
 )
 
 const (
-	BYTE_UNDERSCORE = '_'
-	BYTE_SPACE      = ' '
+	BYTE_UNDERSCORE byte = '_'
+	BYTE_SPACE      byte = ' '
+	BYTE_EOF        byte = 0
 )
 
 var KEYWORDS = [][]byte{
 	[]byte("true"),
 	[]byte("false"),
-	[]byte("break"),
-	[]byte("continue"),
-	[]byte("if"),
-	[]byte("elseif"),
-	[]byte("for"),
-	[]byte("foreach"),
-	[]byte("as"),
+	[]byte("null"),
 }
 
 const (
@@ -55,6 +52,18 @@ const (
 	MaybeArrayKey ArrayInState = iota
 	InArrayValue
 )
+
+/**
+ *
+ */
+func IsBytesInBytesList(bts []byte, btsList [][]byte) bool {
+	for _, kw := range btsList {
+		if IsSameBytes(bts, kw) {
+			return true
+		}
+	}
+	return false
+}
 
 /**
  * same bytes
@@ -152,6 +161,9 @@ func IsEqualOpToken(token IToken) bool {
 }
 
 func AddSpaceOrOperatorByte(bt byte, args ...[]byte) (IToken, error) {
+	if bt == BYTE_EOF {
+		return &spaceToken, nil
+	}
 	if IsSpaceByte(bt) {
 		return &SpaceToken{
 			Raw: []byte{bt},
@@ -331,6 +343,15 @@ var pipeOperator = Operator{
 	Priority: 17,
 }
 
+var bitorOperator = Operator{
+	Raw:      []byte("|"), // Bitwise Or
+	Priority: 5,
+	NextMaybe: &Operator{
+		Raw:      []byte("||"), // Logic Or
+		Priority: 3,
+	},
+}
+
 var equalOperator = Operator{
 	Raw:      []byte("=="), // Equal
 	Priority: 8,
@@ -443,14 +464,7 @@ var operatorList = []Operator{
 		Raw:      []byte("^"), // Bitwise XOR
 		Priority: 6,
 	},
-	{
-		Raw:      []byte("|"), // Bitwise Or
-		Priority: 5,
-		NextMaybe: &Operator{
-			Raw:      []byte("||"), // Logic Or
-			Priority: 3,
-		},
-	},
+	bitorOperator,
 }
 
 /**
@@ -553,12 +567,13 @@ func (token *OperatorToken) RawBytes() []byte {
  * token types
  */
 /**
- * Proxy token
+ * use an empty space token to represent
+ * both the start and end tokens of an expression.
  */
 var spaceToken = SpaceToken{}
 
 /**
- * Space Token
+ * [Space Token] struct
  */
 type SpaceToken struct {
 	Raw []byte
@@ -569,6 +584,8 @@ func (sp *SpaceToken) Add(bt byte, exp *Expression) (IToken, error) {
 		sp.Raw = append(sp.Raw, bt)
 		return nil, nil
 	}
+	// the next token of the space token
+	// could be any token type.
 	return AddUnkownTokenByte(bt, exp)
 }
 
@@ -577,6 +594,8 @@ func (sp *SpaceToken) Type() TokenType {
 }
 
 func (sp *SpaceToken) End() error {
+	// the 'End()' method of the space token
+	// always returns a non-error status
 	return nil
 }
 
@@ -610,6 +629,11 @@ type NumberToken struct {
 	Exponent      *Integer
 }
 
+/**
+ * method => Number()
+ * creates an instance of a number token
+ * keep the base as 10 instead of the default 0.
+ */
 func Number() *NumberToken {
 	return &NumberToken{
 		Base: DecimalBase,
@@ -618,25 +642,25 @@ func Number() *NumberToken {
 
 func (num *NumberToken) Add(bt byte, exp *Expression) (IToken, error) {
 	var curInteger *Integer
-	// check the base
+	// check the base first
 	if num.Base != DecimalBase {
-		// if the base is not 10
+		// if the base is not decimal
+		// maybe 0xNNN/0oNNN/0bNNN/0NNNN
 		curInteger = &num.Integer
 	} else {
-		// keep the order
+		// keep the logical order
 		if num.Exponent != nil {
-			// first, check the exponent part
-			// the first byte maybe the symbol '-' or '+'
+			// step 1: check the exponent part
 			if len(num.Exponent.Raw) == 0 && (bt == '-' || bt == '+') {
+				// the first byte maybe a sign '-' or '+'
 				num.Exponent.Raw = append(num.Exponent.Raw, bt)
-				// exponent with prefix symbol
 				return nil, nil
 			}
 			// check the exponent
 			curInteger = num.Exponent
 		} else if num.Decimal != nil {
-			// second, check the decimal part
-			// check if is exponent
+			// step 2: check the decimal part
+			// check if there is an exponent sign
 			if bt == 'e' || bt == 'E' {
 				num.Exponent = &Integer{}
 				return num.Decimal.CheckPrevByte()
@@ -655,8 +679,8 @@ func (num *NumberToken) Add(bt byte, exp *Expression) (IToken, error) {
 					// normal number
 					num.Integer.PrevByte = &bt
 				} else {
-					// wrong number token
-					return nil, fmt.Errorf("wrong number token")
+					// invalid number token
+					return nil, fmt.Errorf("invalid number token")
 				}
 				// add byte to integer
 				num.Integer.Raw = append(num.Integer.Raw, bt)
@@ -669,7 +693,7 @@ func (num *NumberToken) Add(bt byte, exp *Expression) (IToken, error) {
 					// check prev byte
 					return num.Integer.CheckPrevByte()
 				} else if bt == 'e' || bt == 'E' {
-					// exponent
+					// use the exponent part
 					num.Exponent = &Integer{}
 					// check prev byte
 					return num.Integer.CheckPrevByte()
@@ -686,15 +710,15 @@ func (num *NumberToken) Add(bt byte, exp *Expression) (IToken, error) {
 							// binaray number
 							num.Base = BinaryBase
 						} else {
-							// take it as octal number
+							// treat it as an octal number
 							if IsOctalByte(bt) {
 								num.Base = OctalBase
 							} else if bt == BYTE_UNDERSCORE {
 								num.Base = OctalBase
 								num.Integer.PrevByte = &bt
 							} else if bt == '8' || bt == '9' {
-								// wrong octal number
-								return nil, fmt.Errorf("wrong octal number")
+								// invalid octal number
+								return nil, fmt.Errorf("invalid octal number")
 							} else {
 								return AddSpaceOrOperatorByte(bt, exp.disOp())
 							}
@@ -713,17 +737,17 @@ func (num *NumberToken) Add(bt byte, exp *Expression) (IToken, error) {
 	}
 	// check current integer
 	if bt == BYTE_UNDERSCORE {
-		// not allowed '_' appear at the beginning or repeated _
+		// '_' not allowed to appear at the beginning or be consecutive
 		if curInteger.PrevByte == nil || *curInteger.PrevByte == BYTE_UNDERSCORE {
 			return nil, fmt.Errorf("syntax error:")
 		}
 	} else {
-		// determine whether the current byte belongs to the base
+		// check if the current byte is allowed in the given base.
 		if !IsBaseNumberByte(bt, num.Base) {
 			if _, err := curInteger.CheckPrevByte(); err != nil {
 				return nil, err
 			} else {
-				// the number token is end
+				// the number token has ended
 				return AddSpaceOrOperatorByte(bt, exp.disOp())
 			}
 		}
@@ -739,6 +763,9 @@ func (num *NumberToken) Type() TokenType {
 	return NumType
 }
 
+/**
+ * End
+ */
 func (num *NumberToken) End() error {
 	var curInteger *Integer
 	if num.Exponent != nil {
@@ -760,9 +787,8 @@ func (num *NumberToken) RawBytes() []byte {
  * Identifier token, e.g $a abc a123
  */
 type IdentifierToken struct {
-	IsKeyword bool
-	IsVar     bool
-	Raw       []byte
+	IsVar bool
+	Raw   []byte
 }
 
 func (id *IdentifierToken) Add(bt byte, exp *Expression) (IToken, error) {
@@ -781,9 +807,9 @@ func (id *IdentifierToken) Add(bt byte, exp *Expression) (IToken, error) {
 		if IsAlphaByte(bt) || IsDecimalByte(bt) || bt == BYTE_UNDERSCORE {
 			// ok
 		} else {
-			// check if is variable and only a $
+			// check if it is a variable type and has only one "$" symbol.
 			if len(id.Raw) == 1 && id.IsVar {
-				return nil, fmt.Errorf("wrong variable $")
+				return nil, fmt.Errorf("invalid variable $")
 			}
 			// next only allow space or operator
 			return AddSpaceOrOperatorByte(bt, exp.disOp())
@@ -845,7 +871,7 @@ func (ss *SingleQuoteStringToken) Type() TokenType {
 
 func (ss *SingleQuoteStringToken) End() error {
 	if !ss.IsEnd {
-		return fmt.Errorf("the single quote string is not closed")
+		return fmt.Errorf("the single-quote string has not been terminated.")
 	}
 	return nil
 }
@@ -951,7 +977,7 @@ func (ds *DoubleQuoteStringToken) Type() TokenType {
 
 func (ds *DoubleQuoteStringToken) End() error {
 	if !ds.IsEnd {
-		return fmt.Errorf("the double quote string is not closed")
+		return fmt.Errorf("the double-quote string has not been terminated.")
 	}
 	return nil
 }
@@ -1006,9 +1032,9 @@ type ArrayLiteral struct {
 	Raw    []byte
 }
 
-func (arr *ArrayLiteral) SetCurExp() {
-	// disable operator ']'
-	// so the parser can process it in the feature err not nil
+func (arr *ArrayLiteral) setCurExp() {
+	// exclude operator ']'
+	// so that it can handle in the err != nil branch.
 	arr.CurExp = New(&ExpOpts{
 		DisAllowedOp: []byte{']'},
 	})
@@ -1022,7 +1048,6 @@ func (arr *ArrayLiteral) Add(bt byte, exp *Expression) (IToken, error) {
 	// array state
 	curExp := arr.CurExp
 	if _, err := curExp.Add(bt, curExp); err == nil {
-
 		return nil, nil
 	} else {
 		isValue := true
@@ -1031,14 +1056,14 @@ func (arr *ArrayLiteral) Add(bt byte, exp *Expression) (IToken, error) {
 			arr.IsEnd = true
 		} else if bt == ',' {
 			// new array item
-			arr.SetCurExp()
+			arr.setCurExp()
 		} else if arr.State == MaybeArrayKey && IsEqualOpToken(curExp.CurToken) && bt == '>' {
 			// when '=>'
 			curExp.CurToken = &spaceToken
 			isValue = false
 			arr.HasKey = true
 			arr.State = InArrayValue
-			arr.SetCurExp()
+			arr.setCurExp()
 		} else {
 			return nil, fmt.Errorf("unexpecte token '%s' in array literal", string(bt))
 		}
@@ -1072,7 +1097,7 @@ func (arr *ArrayLiteral) Add(bt byte, exp *Expression) (IToken, error) {
 					Key: lastToken,
 				})
 			} else {
-				return nil, fmt.Errorf("disallowed key token in array literal")
+				return nil, fmt.Errorf("this token is not allowed to be used as a key for an array.")
 			}
 		}
 	}
@@ -1084,6 +1109,9 @@ func (arr *ArrayLiteral) Type() TokenType {
 }
 
 func (arr *ArrayLiteral) End() error {
+	if !arr.IsEnd {
+		return fmt.Errorf("the array did not end properly.")
+	}
 	return nil
 }
 
@@ -1141,6 +1169,9 @@ func (fn *FunctionCall) Type() TokenType {
 }
 
 func (fn *FunctionCall) End() error {
+	if !fn.IsEnd {
+		return fmt.Errorf("the function call did not end properly.")
+	}
 	return nil
 }
 
@@ -1149,9 +1180,10 @@ func (fn *FunctionCall) RawBytes() []byte {
 }
 
 /**
-*
+* Pipe Function
  */
 type PipeFunction struct {
+	IsEnd  bool
 	CurArg *Expression
 	Name   *IdentifierToken
 	Args   []IToken
@@ -1159,41 +1191,49 @@ type PipeFunction struct {
 }
 
 func (pipe *PipeFunction) Add(bt byte, exp *Expression) (IToken, error) {
+	if pipe.IsEnd {
+		return AddSpaceOrOperatorByte(bt)
+	}
 	curArg := pipe.CurArg
 	if curArg != nil {
+		fmt.Printf("\n===========>处理字符======> '%s' lazyPipe===>%v\n", string(bt), curArg.LazyPipe)
 		if errToken, err := curArg.Add(bt, curArg); err == nil {
 			opStack := curArg.OpStack
-			if len(opStack) == 1 {
-				opToken := opStack[0]
-				isPipe := opToken.Op == &pipeOperator
-				if isPipe || opToken.Op.Priority < pipeOperator.Priority {
-					// save curArg's token to exp's cur token
-					curArgToken := curArg.CurToken
+			isLazyPipe := curArg.LazyPipe
+			if isLazyPipe || (len(opStack) == 1 && opStack[0].Op.Priority < pipeOperator.Priority) {
+				var opToken *OperatorToken
+				// save curArg's token to exp's cur token
+				curArgToken := curArg.CurToken
+				if !isLazyPipe {
+					opToken = opStack[0]
 					// remove the operator from cur arg expression
 					curArg.OpStack = opStack[:0]
-					// ignore cur arg's cur token
-					curArg.CurToken = &spaceToken
-					if err = curArg.Eof(); err != nil {
-						return curArg, err
-					}
-					pipe.Args = append(pipe.Args, curArg.Token())
-					pipe.CurArg = nil
-					// set prev token
-					if isPipe {
-						exp.Output = append(exp.Output, pipe)
-						if nextToken, err := exp.addConvertOperator(&pipeOperator); err != nil {
-							return nextToken, err
-						}
-					} else {
-						exp.Output = append(exp.Output, pipe)
-						if err = exp.addOperator(opToken); err != nil {
-							return opToken, err
-						}
-						exp.PrevToken = opToken
-					}
-					exp.CurToken = curArgToken
-					return nil, nil
 				}
+				// add the current parameter
+				// to the pipeline function parameter list.
+				curArg := pipe.CurArg
+				curArg.CurToken = &spaceToken
+				if err := curArg.Eof(); err != nil {
+					return curArg, err
+				}
+				pipe.Args = append(pipe.Args, curArg.Token())
+				pipe.CurArg = nil
+				pipe.IsEnd = true
+				// add the pipeline function to the output.
+				exp.addOutput(pipe)
+				if isLazyPipe {
+					// change the current pipe state to the original expression.
+					curArg.LazyPipe = false
+					exp.LazyPipe = true
+					// set previouse token as pipe
+					exp.PrevToken = pipe
+				} else {
+					if err = exp.addOperator(opToken); err != nil {
+						return opToken, err
+					}
+					exp.PrevToken = opToken
+				}
+				exp.CurToken = curArgToken
 			}
 			return nil, nil
 		} else {
@@ -1231,6 +1271,7 @@ func (pipe *PipeFunction) End() error {
 		pipe.Args = append(pipe.Args, curArg.Token())
 		pipe.CurArg = nil
 	}
+	pipe.IsEnd = true
 	return nil
 }
 
@@ -1276,11 +1317,11 @@ type ArrayField struct {
 }
 
 func (arr *ArrayField) Add(bt byte, exp *Expression) (IToken, error) {
-	// first check if static field
+	// first check if it's a regular field.
 	if arr.Field != nil {
 		return arr.Field.Add(bt, exp)
 	}
-	// then check if the computed field is end
+	// then check if the computed field has been ended.
 	if arr.IsEnd {
 		return AddSpaceOrOperatorByte(bt, exp.disOp())
 	}
@@ -1317,42 +1358,45 @@ func (arr *ArrayField) RawBytes() []byte {
 }
 
 /**
-*
+* AST Node
  */
-type Ast struct {
+type AstNode struct {
 	Op    *Operator
 	Left  IToken
 	Right IToken
 }
 
-func (ast *Ast) Add(bt byte, exp *Expression) (IToken, error) {
+func (ast *AstNode) Add(bt byte, exp *Expression) (IToken, error) {
 	return nil, nil
 }
 
-func (ast *Ast) Type() TokenType {
+func (ast *AstNode) Type() TokenType {
 	return AstType
 }
 
-func (ast *Ast) End() error {
+func (ast *AstNode) End() error {
 	return nil
 }
 
-func (ast *Ast) RawBytes() []byte {
+func (ast *AstNode) RawBytes() []byte {
 	return []byte{}
 }
 
+/**
+ * Expression
+ */
 type ExpOpts struct {
 	DisAllowedOp []byte
+	TypeKeywords [][]byte
 }
 
 type Expression struct {
-	PrevToken   IToken
-	CurToken    IToken
-	LazyPipe    *OperatorToken
-	ImmediateOp *OperatorToken
-	Options     *ExpOpts
-	OpStack     []*OperatorToken
-	Output      []IToken
+	LazyPipe  bool
+	PrevToken IToken
+	CurToken  IToken
+	Options   *ExpOpts
+	OpStack   []*OperatorToken
+	Output    []IToken
 }
 
 func New(args ...*ExpOpts) *Expression {
@@ -1366,6 +1410,16 @@ func New(args ...*ExpOpts) *Expression {
 	return &exp
 }
 
+func (exp *Expression) IsKeyword(bts []byte) bool {
+	if IsBytesInBytesList(bts, KEYWORDS) {
+		return true
+	}
+	if exp.Options != nil {
+		return IsBytesInBytesList(bts, exp.Options.TypeKeywords)
+	}
+	return false
+}
+
 /**
  * add operator
  */
@@ -1373,9 +1427,11 @@ func (exp *Expression) addOperator(opToken *OperatorToken) error {
 	op := opToken.Op
 	opStack := exp.OpStack
 	total := len(opStack)
+	fmt.Println("\n增加操作符")
+	spew.Dump(op)
 	if total == 0 {
 		if op == &parenEndOperator {
-			return fmt.Errorf("unexpected operator ')'")
+			return fmt.Errorf("unexpected right parenthesis operator ')'.")
 		}
 		exp.OpStack = append(opStack, opToken)
 	} else {
@@ -1397,12 +1453,14 @@ func (exp *Expression) addOperator(opToken *OperatorToken) error {
 			if isPair {
 				exp.OpStack = opStack[:total]
 			} else {
-				return fmt.Errorf("unexpect operator ')'")
+				return fmt.Errorf("unexpect left parenthesis operator ')'")
 			}
 		} else {
 			priority := op.Priority
 			index := total
-			// pop all operators which priority not less than cur operator
+			// using the shunting yard algorithm
+			// pop operators until an operator with a priority less than the current operator's priority
+			// or the operator is a left parenthesis.
 			for index != 0 {
 				nextIndex := index - 1
 				curOpToken := opStack[nextIndex]
@@ -1411,19 +1469,53 @@ func (exp *Expression) addOperator(opToken *OperatorToken) error {
 					break
 				}
 				index = nextIndex
-				// add to output
+				// add operator to output
 				if err := exp.addOperatorToOutput(curOpToken); err != nil {
 					return err
 				}
 			}
+			// delete the popped operators.
 			if index != total {
 				exp.OpStack = opStack[:index]
 			}
-			// add current, here use exp.OpStack
+			// add the current operator to the operator stack
+			// should use the maybe updated exp.OpStack
 			exp.OpStack = append(exp.OpStack, opToken)
 		}
 	}
 	return nil
+}
+
+func (exp *Expression) addLazyPipe(token IToken) (IToken, error) {
+	// set lazy pipe false
+	exp.LazyPipe = false
+	// check the output
+	if ident, isIdent := token.(*IdentifierToken); isIdent && !(ident.IsVar || exp.IsKeyword(ident.RawBytes())) {
+		// pipe function
+		nextToken := &PipeFunction{
+			Name: ident,
+		}
+		// add the '|' pipe operator
+		if errToken, err := exp.addConvertOperator(&pipeOperator); err != nil {
+			return errToken, err
+		}
+		exp.CurToken = nextToken
+		return nextToken, nil
+	}
+	bitorToken := OperatorToken{
+		Op: &bitorOperator,
+	}
+	// add bitwise |
+	if err := exp.addOperator(&bitorToken); err != nil {
+		return &bitorToken, err
+	}
+	return nil, nil
+}
+
+func (exp *Expression) addOutput(token IToken) {
+	fmt.Printf("\n--------增加output------lazyPipe=> %v----\n", exp.LazyPipe)
+	spew.Dump(token)
+	exp.Output = append(exp.Output, token)
 }
 
 func (exp *Expression) addConvertOperator(op *Operator) (IToken, error) {
@@ -1460,14 +1552,10 @@ func (exp *Expression) addOperatorToOutput(opToken *OperatorToken) error {
 				return fmt.Errorf("invalid left-hand side in assignment")
 			}
 		}
-		ast := &Ast{
+		ast := &AstNode{
 			Op: op,
 		}
-		if op.RightToLeft {
-			ast.Right = lastToken
-		} else {
-			ast.Left = lastToken
-		}
+		ast.Right = lastToken
 		output[total-1] = ast
 	} else {
 		if total < 2 {
@@ -1484,7 +1572,7 @@ func (exp *Expression) addOperatorToOutput(opToken *OperatorToken) error {
 				return fmt.Errorf("wrong function call")
 			}
 		} else if op == &memberOperator {
-			// array static field
+			// array regular field
 			if ident, isIdent := right.(*IdentifierToken); isIdent {
 				ast = &ArrayField{
 					Array: left,
@@ -1522,10 +1610,25 @@ func (exp *Expression) addOperatorToOutput(opToken *OperatorToken) error {
 				return fmt.Errorf("unexpected object member")
 			}
 		} else {
-			ast = &Ast{
-				Op:    op,
-				Left:  left,
-				Right: right,
+			if leftAst, isLeftAst := left.(*AstNode); isLeftAst && op.RightToLeft && leftAst.Op.RightToLeft {
+				// using right-associative
+				// generating the AST by parsing from right to left
+				// set left ASTNode's right operand as the new ASTNode's left operand
+				// update left ASTNode's right operand as the new ASTNode
+				right = &AstNode{
+					Op:    op,
+					Left:  leftAst.Right,
+					Right: right,
+				}
+				leftAst.Right = right
+				// take the updated left ASTNode as new AST
+				ast = leftAst
+			} else {
+				ast = &AstNode{
+					Op:    op,
+					Left:  left,
+					Right: right,
+				}
 			}
 		}
 		output[total-2] = ast
@@ -1544,142 +1647,128 @@ func (exp *Expression) Add(bt byte, _ *Expression) (IToken, error) {
 		// if next token is not nil
 		// current token is end
 		if nextToken != nil {
-			// first check if cur token is end
-			if err = curToken.End(); err != nil {
-				return curToken, err
+			isCurSpaceToken := IsSpaceToken(curToken)
+			isLazyPipe := exp.LazyPipe
+			if !isCurSpaceToken {
+				// first check if cur token is end
+				if err = curToken.End(); err != nil {
+					return curToken, err
+				}
+				// then check if lazy pipe
+				if isLazyPipe {
+					if lazyToken, err := exp.addLazyPipe(curToken); err != nil {
+						return lazyToken, err
+					} else if lazyToken != nil {
+						// a lazy pipeline function
+						// if the byte is EOF byte
+						// should add the pipeline function to output
+						if bt == BYTE_EOF {
+							exp.addOutput(lazyToken)
+							return lazyToken, nil
+						}
+						return lazyToken.Add(bt, exp)
+					}
+				}
 			}
-			// first do with lazy pipe
-			if exp.LazyPipe != nil {
-				// cur token is space token, and next token must be non space token
-				if ident, isIdent := nextToken.(*IdentifierToken); isIdent && !ident.IsVar {
-					// pipe function
-					nextToken = &PipeFunction{
-						Name: ident,
-					}
-					// add the '|' pipe operator
-					if errToken, err := exp.addConvertOperator(&pipeOperator); err != nil {
-						return errToken, err
-					}
-					exp.CurToken = nextToken
-					exp.LazyPipe = nil
-					return nextToken, nil
-				} else {
-					// add bitwise |
-					if err := exp.addOperator(exp.LazyPipe); err != nil {
-						return exp.LazyPipe, err
-					}
-					// set cur token
-					exp.CurToken = nextToken
-					// jump next steps
-					return nextToken, nil
-				}
-			} else {
-				// check other condition
-				if opToken, isOp := curToken.(*OperatorToken); isOp {
-					// operators
-					op := opToken.Op
-					isConvOp := false
-					if op == &parenOperator {
-						// operator (
-						prevType := exp.PrevToken.Type()
-						if prevType == IdentType || prevType == FuncCallType || prevType == ObjPropType || prevType == ArrFieldType {
-							// check if function call
-							nextToken = &FunctionCall{
-								CurArg: New(),
-							}
-							// add function call operator
-							if errToken, err := exp.addConvertOperator(&fnCallOperator); err != nil {
-								return errToken, err
-							}
-							isConvOp = true
+			// check other condition
+			if opToken, isOp := curToken.(*OperatorToken); isOp {
+				// operators
+				op := opToken.Op
+				isConvOp := false
+				if op == &parenOperator {
+					// operator (
+					prevType := exp.PrevToken.Type()
+					if prevType == IdentType || prevType == FuncCallType || prevType == ObjPropType || prevType == ArrFieldType {
+						// check if function call
+						nextToken = &FunctionCall{
+							CurArg: New(),
 						}
-					} else if op == &bracketOperator {
-						// '[', if before is binary operator or paren or the beginning
-						// take it as an array literal type
-						prevToken := exp.PrevToken
-						if IsBinaryOrParenOpToken(prevToken) || IsSpaceToken(prevToken) {
-							arrLit := &ArrayLiteral{
-								State: MaybeArrayKey,
-							}
-							arrLit.SetCurExp()
-							nextToken = arrLit
-						} else {
-							// '[' computed array field
-							nextToken = &ArrayField{
-								ComputedField: New(&ExpOpts{
-									DisAllowedOp: []byte{']'},
-								}),
-							}
-							// add the '[' operator
-							if errToken, err := exp.addConvertOperator(&bracketOperator); err != nil {
-								return errToken, err
-							}
+						// add function call operator
+						if errToken, err := exp.addConvertOperator(&fnCallOperator); err != nil {
+							return errToken, err
 						}
-						// always converted op
 						isConvOp = true
-					} else if op.IsPipe() {
-						// operator |
-						nextType := nextToken.Type()
-						if nextType == IdentType {
-							ident := nextToken.(*IdentifierToken)
-							if !ident.IsVar {
-								// pipe function
-								nextToken = &PipeFunction{
-									Name: ident,
-								}
-								// add the '|' operator
-								if errToken, err := exp.addConvertOperator(&pipeOperator); err != nil {
-									return errToken, err
-								}
-								exp.CurToken = nextToken
-								return nextToken, nil
-							}
-						} else if nextType == SpaceType {
-							// space token need lazy check
-							exp.LazyPipe = opToken
-							// reset prev and cur token
-							exp.PrevToken = curToken
-							exp.CurToken = nextToken
-							return nextToken, nil
+					}
+				} else if op == &bracketOperator {
+					// '[', if before is binary operator or paren or the beginning
+					// take it as an array literal type
+					prevToken := exp.PrevToken
+					if IsBinaryOrParenOpToken(prevToken) || IsSpaceToken(prevToken) {
+						arrLit := &ArrayLiteral{
+							State: MaybeArrayKey,
+						}
+						arrLit.setCurExp()
+						nextToken = arrLit
+					} else {
+						// '[' computed array field
+						nextToken = &ArrayField{
+							ComputedField: New(&ExpOpts{
+								DisAllowedOp: []byte{']'},
+							}),
+						}
+						// add the '[' operator
+						if errToken, err := exp.addConvertOperator(&bracketOperator); err != nil {
+							return errToken, err
 						}
 					}
-					// if is convert op
-					if isConvOp {
-						// reset cur token, prev token is set by convert token
-						exp.CurToken = nextToken
-						return nextToken.Add(bt, exp)
-					}
-					// check if repeated non unary operators
-					if !op.Unary && op != &parenOperator && op != &bracketOperator {
-						if prevOpToken, prevIsOp := exp.PrevToken.(*OperatorToken); prevIsOp && !prevOpToken.Op.Unary {
-							return nil, fmt.Errorf("unexpected operator token '%s'", string(op.Raw))
-						}
-					}
-					// bracket end operator ]
-					if op == &bracketEndOperator {
-						return opToken, fmt.Errorf("unexpected operator ']'")
-					}
-					// add operator to op stack
-					if err = exp.addOperator(opToken); err != nil {
-						return opToken, err
-					}
-					// reset prev and cur token
-					exp.PrevToken = curToken
+					// always converted operator
+					isConvOp = true
+				} else if op.IsPipe() {
+					// operator |
+					exp.LazyPipe = true
 					exp.CurToken = nextToken
-				} else {
-					// output
-					if !IsSpaceToken(curToken) {
-						// ignore space token
-						exp.Output = append(exp.Output, curToken)
-						// no space token need reset prev token
-						exp.PrevToken = curToken
-					}
-					exp.CurToken = nextToken
+					return nextToken, nil
 				}
+				// if is a converted operator
+				if isConvOp {
+					// reset cur token, prev token is set by convert token
+					exp.CurToken = nextToken
+					return nextToken.Add(bt, exp)
+				}
+				// determine if there are consecutive non-unary operators.
+				if !op.Unary && op != &parenOperator && op != &bracketOperator {
+					if prevOpToken, prevIsOp := exp.PrevToken.(*OperatorToken); prevIsOp && !prevOpToken.Op.Unary && prevOpToken.Op != &parenEndOperator {
+						return nil, fmt.Errorf("unexpected operator token '%s'", string(op.Raw))
+					}
+				}
+				// bracket end operator ]
+				if op == &bracketEndOperator {
+					return opToken, fmt.Errorf("unexpected operator ']'")
+				}
+				// add operator to op stack
+				if err = exp.addOperator(opToken); err != nil {
+					return opToken, err
+				}
+				// reset prev and cur token
+				exp.PrevToken = curToken
+				exp.CurToken = nextToken
+			} else {
+				// output
+				if !isCurSpaceToken {
+					// add cur token to ouput
+					exp.addOutput(curToken)
+					// ignore space token
+					// only when current token is not a space token
+					// need set previous token to current token
+					exp.PrevToken = curToken
+				}
+				exp.CurToken = nextToken
 			}
 		}
 		return exp.CurToken, nil
 	} else {
+		// only when
+		// 1. the current state is in LazyPipe
+		// 2. and the byte is ":"
+		// 3. and the current token is not space token
+		// should handed over to the pipeline function for processing.
+		if exp.LazyPipe && !IsSpaceToken(exp.CurToken) && bt == ':' {
+			if maybePipeToken, err := exp.addLazyPipe(exp.CurToken); err != nil {
+				return maybePipeToken, err
+			} else if maybePipeToken != nil {
+				return maybePipeToken.Add(bt, exp)
+			}
+		}
 		return nil, err
 	}
 }
@@ -1702,20 +1791,17 @@ func (exp *Expression) RawBytes() []byte {
 func (exp *Expression) Eof() error {
 	curToken := exp.CurToken
 	if !IsSpaceToken(curToken) {
-		// check if the last token is end
+		// check if the last token has been ended correctly.
 		if err := curToken.End(); err != nil {
 			return err
 		}
-		// add a space make sure end of the expression
-		if _, err := exp.Add(BYTE_SPACE, exp); err != nil {
+		// add a EOF byte to make sure all tokens ended
+		if _, err := exp.Add(BYTE_EOF, exp); err != nil {
 			return err
 		}
-		// pipe function need add to output
-		if curToken.Type() == PipeFuncType {
-			exp.Output = append(exp.Output, curToken)
-		}
 	}
-	// output all the operators still left in op stack
+	// pop all remaining operators from the stack
+	// and generate the final AST.
 	opStack := exp.OpStack
 	total := len(opStack)
 	if total > 0 {
@@ -1723,8 +1809,8 @@ func (exp *Expression) Eof() error {
 			total--
 			curOpToken := opStack[total]
 			if curOpToken.Op == &parenOperator {
-				// unclosed paren operator
-				return fmt.Errorf("unclosed operator '('")
+				// an unclosed parentheses operator.
+				return fmt.Errorf("there is an expression group that hasn't been ended.")
 			}
 			if err := exp.addOperatorToOutput(curOpToken); err != nil {
 				return err
@@ -1733,8 +1819,9 @@ func (exp *Expression) Eof() error {
 	}
 	// translate the output to AST
 	if len(exp.Output) != 1 {
-		return fmt.Errorf("wrong expression")
+		return fmt.Errorf("invalid expression")
 	}
+	spew.Dump(exp.Token())
 	return nil
 }
 

@@ -137,12 +137,13 @@ func TestArrayLiteral(t *testing.T) {
 	assert.True(t, isArray("[]"))
 	assert.True(t, isArray("[1]"))
 	assert.True(t, isArray("[1,]"))
+	assert.True(t, isArray("[1 => 3]"))
 	assert.True(t, isArray("[1 => 3,]"))
 }
 
 func TestMain(t *testing.T) {
 	exp := New()
-	_, err := exp.Parse("[]")
+	_, err := exp.Parse("5|trues")
 	assert.Error(t, err)
 	assert.Nil(t, err)
 }
