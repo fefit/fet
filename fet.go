@@ -4,9 +4,18 @@ import (
 	"github.com/fefit/fet/lexer"
 )
 
+type InScope = uint
+type Bytes = []byte
+
+const (
+	LocalScope InScope = iota
+	ParentScope
+	GlobalScope
+)
+
 type Config struct {
-	LeftDelimiter  []byte
-	RightDelimiter []byte
+	LeftDelimiter  Bytes
+	RightDelimiter Bytes
 }
 
 type Engine interface {
@@ -25,6 +34,17 @@ type IParser interface {
 type ICode interface {
 }
 
+type LinkedNode struct {
+	Parent     ICode // parent node
+	Prev       ICode // prev node
+	Next       ICode // next node
+	FirstChild ICode // first child
+}
+
+/**
+ * Property
+ */
+
 type Property struct {
 	Shorthand      bool
 	Required       bool
@@ -40,10 +60,10 @@ type BuiltInPropParser struct {
 }
 
 type BlockFeature struct {
-	Once   bool   // only allowed appear once
-	Last   bool   // only allowed appear at last feature
-	Name   []byte // feature block name
-	Alias  []byte // feature block alias name, if exists
+	Once   bool  // only allowed appear once
+	Last   bool  // only allowed appear at last feature
+	Name   Bytes // feature block name
+	Alias  Bytes // feature block alias name, if exists
 	Parser IParser
 }
 
@@ -51,18 +71,74 @@ type BlockFeature struct {
  *
  */
 type Block struct {
-	Name     []byte
-	EndName  []byte
+	Name     Bytes
+	EndName  Bytes
 	Features []BlockFeature
 	Parser   IParser
-	Childs   []ICode
+	Node     *LinkedNode
 }
 
 type Context struct {
-	Scope []byte // scope
+	Scope Bytes // scope
 
 }
 
-type OutputCode struct {
-	RawBytes [][]byte
+/**
+ * Raw Html
+ */
+type RawHtml struct {
+	Raw  Bytes
+	Node *LinkedNode
+}
+
+/**
+ * Output
+ */
+type Output struct {
+	Exp  *lexer.Expression
+	Node *LinkedNode
+}
+
+/**
+ * Assignment
+ */
+type Assignment struct {
+	Scope InScope
+	Name  lexer.IToken
+	Value *lexer.Expression
+}
+
+/**
+ * Include
+ */
+type Include struct {
+	Depth   uint
+	AbsPath []Bytes
+	Path    []Bytes
+	Node    *LinkedNode
+	Tpl     *Template
+}
+
+/**
+ * Extend
+ */
+type Extend struct {
+	AbsPath []Bytes
+	Path    []Bytes
+	Tpl     *Template
+}
+
+/**
+ * Slot
+ */
+type Slot struct {
+	Name  Bytes
+	Codes []ICode
+}
+
+/**
+ * Template
+ */
+type Template struct {
+	Codes []ICode
 }
