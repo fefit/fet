@@ -5,6 +5,7 @@ import (
 )
 
 type InScope = uint
+type PathType = uint
 type Bytes = []byte
 
 const (
@@ -12,6 +13,18 @@ const (
 	ParentScope
 	GlobalScope
 )
+
+const (
+	AbsPath  PathType = iota // absolute path
+	RelaPath                 // relative path
+	BasePath                 // path base on
+)
+
+type TplPath struct {
+	Type    PathType
+	Path    []Bytes
+	AbsPath []Bytes
+}
 
 type Config struct {
 	LeftDelimiter  Bytes
@@ -112,20 +125,17 @@ type Assignment struct {
  * Include
  */
 type Include struct {
-	Depth   uint
-	AbsPath []Bytes
-	Path    []Bytes
-	Node    *LinkedNode
-	Tpl     *Template
+	Depth uint
+	Node  *LinkedNode
+	Tpl   *Template
 }
 
 /**
  * Extend
  */
 type Extend struct {
-	AbsPath []Bytes
-	Path    []Bytes
 	Tpl     *Template
+	TplPath *TplPath
 }
 
 /**
@@ -133,6 +143,7 @@ type Extend struct {
  */
 type Slot struct {
 	Name  Bytes
+	Node  *LinkedNode
 	Codes []ICode
 }
 
@@ -140,5 +151,6 @@ type Slot struct {
  * Template
  */
 type Template struct {
-	Codes []ICode
+	TplPath *TplPath
+	Codes   []ICode
 }
