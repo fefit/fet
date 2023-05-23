@@ -1,6 +1,8 @@
 package fet
 
 import (
+	"unicode"
+
 	"github.com/fefit/fet/lexer"
 )
 
@@ -29,6 +31,7 @@ type TplPath struct {
 type Config struct {
 	LeftDelimiter  Bytes
 	RightDelimiter Bytes
+	CommentSymbol  byte
 }
 
 type Engine interface {
@@ -45,6 +48,7 @@ type IParser interface {
 }
 
 type ICode interface {
+	Add(bt byte, parser *Parser) (ICode, error)
 }
 
 type LinkedNode struct {
@@ -52,6 +56,57 @@ type LinkedNode struct {
 	Prev       ICode // prev node
 	Next       ICode // next node
 	FirstChild ICode // first child
+}
+
+/**
+ * Initital State Code
+ */
+type Unkown struct {
+	Matched int
+}
+
+func (unkown *Unkown) Add(bt byte, parser *Parser) (ICode, error) {
+	leftDelim := parser.Config.LeftDelimiter
+	index := unkown.Matched
+	if bt == leftDelim[index] {
+		if index == len(leftDelim)-1 {
+			// matched all the left delimiter
+			return parser.Detect, nil
+		}
+		// increase the matched count
+		unkown.Matched++
+		return nil, nil
+	}
+	if index > 0 {
+		// non full-matched delimiter
+		raw := &RawHtml{
+			Raw: append([]byte{}, leftDelim[:index]...),
+		}
+		return raw.Add(bt, parser)
+	}
+	return &RawHtml{
+		Raw: []byte{bt},
+	}, nil
+}
+
+type Detect struct {
+	Raw Bytes
+}
+
+func (detect *Detect) Add(bt byte, parser *Parser) (ICode, error) {
+	raw := detect.Raw
+	total := len(raw)
+	if total == 0 {
+		if bt == parser.Config.CommentSymbol {
+			return &Comment{}, nil
+		}
+		if !unicode.IsSpace(rune(bt)) {
+			detect.Raw = []byte{bt}
+		}
+	} else {
+
+	}
+	return nil, nil
 }
 
 /**
@@ -104,6 +159,23 @@ type RawHtml struct {
 	Node *LinkedNode
 }
 
+func (rawHtml *RawHtml) Add(bt byte, parser *Parser) (ICode, error) {
+	return nil, nil
+
+}
+
+/**
+ *
+ */
+type Comment struct {
+	Raw Bytes
+}
+
+func (comment *Comment) Add(bt byte, parser *Parser) (ICode, error) {
+	return nil, nil
+
+}
+
 /**
  * Output
  */
@@ -153,4 +225,19 @@ type Slot struct {
 type Template struct {
 	TplPath *TplPath
 	Codes   []ICode
+}
+
+/**
+ *
+ */
+type Parser struct {
+	Config  *Config // Config
+	Unkown  *Unkown // Unkown code
+	Detect  *Detect // Detect block/assign/output
+	CurCode ICode   // Current code
+}
+
+func (parser *Parser) Parse(bt byte) error {
+
+	return nil
 }
