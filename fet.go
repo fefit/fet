@@ -1,12 +1,14 @@
 package fet
 
 import (
+	"fmt"
 	"unicode"
 
 	"github.com/fefit/fet/lexer"
 )
 
 type InScope = uint
+type CodeType = uint
 type PathType = uint
 type Bytes = []byte
 
@@ -14,6 +16,18 @@ const (
 	LocalScope InScope = iota
 	ParentScope
 	GlobalScope
+)
+
+const (
+	BlockCode CodeType = iota
+	BlockFeatureCode
+	BlockEndCode
+	UnkownCode
+	DetectCode
+	CommentCode
+	RawHtmlCode
+	OutputCode
+	AssignCode
 )
 
 const (
@@ -49,6 +63,7 @@ type IParser interface {
 
 type ICode interface {
 	Add(bt byte, parser *Parser) (ICode, error)
+	Type() CodeType
 }
 
 type LinkedNode struct {
@@ -89,24 +104,50 @@ func (unkown *Unkown) Add(bt byte, parser *Parser) (ICode, error) {
 	}, nil
 }
 
+func (unkown *Unkown) Type() CodeType {
+	return UnkownCode
+}
+
+/**
+ *
+ */
 type Detect struct {
-	Raw Bytes
+	Exp *lexer.Expression
 }
 
 func (detect *Detect) Add(bt byte, parser *Parser) (ICode, error) {
-	raw := detect.Raw
-	total := len(raw)
-	if total == 0 {
+	exp := detect.Exp
+	if exp == nil {
+		// comment code
 		if bt == parser.Config.CommentSymbol {
 			return &Comment{}, nil
 		}
 		if !unicode.IsSpace(rune(bt)) {
-			detect.Raw = []byte{bt}
+			// judge if block end
+			if bt == '/' {
+				// end block
+				if block, isBlock := parser.CurCode.(*Block); isBlock {
+					block.End = &BlockEnd{
+						Name: block.Name,
+					}
+					return block.End, nil
+				}
+				// wrong end block
+				return nil, fmt.Errorf("wrong block end /")
+			}
+			detect.Exp = lexer.New()
+		} else {
+			// whitespace, need detect again
+			return nil, nil
 		}
 	} else {
 
 	}
 	return nil, nil
+}
+
+func (_ *Detect) Type() CodeType {
+	return DetectCode
 }
 
 /**
@@ -139,11 +180,33 @@ type BlockFeature struct {
  *
  */
 type Block struct {
-	Name     Bytes
-	EndName  Bytes
+	Name     *Bytes
+	End      *BlockEnd
 	Features []BlockFeature
 	Parser   IParser
 	Node     *LinkedNode
+}
+
+func (block *Block) Add(bt byte, parser *Parser) (ICode, error) {
+	return nil, nil
+
+}
+
+func (_ *Block) Type() CodeType {
+	return BlockCode
+}
+
+type BlockEnd struct {
+	Name  *Bytes
+	Index uint
+}
+
+func (blockEnd *BlockEnd) Add(bt byte, parser *Parser) (ICode, error) {
+	return nil, nil
+}
+
+func (blockEnd *BlockEnd) Type() CodeType {
+	return BlockEndCode
 }
 
 type Context struct {
@@ -164,6 +227,10 @@ func (rawHtml *RawHtml) Add(bt byte, parser *Parser) (ICode, error) {
 
 }
 
+func (_ *RawHtml) Type() CodeType {
+	return RawHtmlCode
+}
+
 /**
  *
  */
@@ -174,6 +241,10 @@ type Comment struct {
 func (comment *Comment) Add(bt byte, parser *Parser) (ICode, error) {
 	return nil, nil
 
+}
+
+func (_ *Comment) Type() CodeType {
+	return CommentCode
 }
 
 /**
