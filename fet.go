@@ -127,10 +127,11 @@ func (detect *Detect) Add(bt byte, parser *Parser) (ICode, error) {
 			if bt == '/' {
 				// end block
 				if block, isBlock := parser.CurCode.(*Block); isBlock {
-					block.End = &BlockEnd{
-						Name: block.Name,
-					}
-					return block.End, nil
+					// block.End = &BlockEnd{
+					// 	Name: block.Name,
+					// }
+					// return block.End, nil
+					return nil, nil
 				}
 				// wrong end block
 				return nil, fmt.Errorf("wrong block end /")
@@ -168,23 +169,30 @@ type BuiltInPropParser struct {
 	Props []Property
 }
 
-type BlockFeature struct {
+type RegisterBlockFeature struct {
 	Once   bool  // only allowed appear once
 	Last   bool  // only allowed appear at last feature
 	Name   Bytes // feature block name
 	Alias  Bytes // feature block alias name, if exists
 	Parser IParser
 }
+type BlockFeature struct {
+	Meta *RegisterBlockFeature
+	Name Bytes
+}
 
 /**
  *
  */
-type Block struct {
-	Name     *Bytes
-	End      *BlockEnd
-	Features []BlockFeature
+type RegisterBlock struct {
+	Name     Bytes
+	Features []RegisterBlockFeature
 	Parser   IParser
-	Node     *LinkedNode
+}
+
+type Block struct {
+	Meta *RegisterBlock
+	Node *LinkedNode
 }
 
 func (block *Block) Add(bt byte, parser *Parser) (ICode, error) {
@@ -311,4 +319,7 @@ type Parser struct {
 func (parser *Parser) Parse(bt byte) error {
 
 	return nil
+}
+
+type Fet struct {
 }
