@@ -5,6 +5,7 @@ import (
 	"unicode"
 
 	"github.com/fefit/fet/lexer"
+	"github.com/fefit/fet/utils"
 )
 
 type InScope = uint
@@ -35,6 +36,40 @@ const (
 	RelaPath                 // relative path
 	BasePath                 // path base on
 )
+
+func createBytesMatcher(bytes *Bytes, spaceIndex int) *BytesMatcher {
+	return &BytesMatcher{
+		Index:      0,
+		SpaceIndex: spaceIndex,
+		Raw:        bytes,
+	}
+}
+
+type BytesMatcher struct {
+	IsEnd      bool
+	Index      int
+	SpaceIndex int
+	Raw        *Bytes
+}
+
+func (matcher *BytesMatcher) Match(bt byte) (bool, error) {
+	index := matcher.Index
+	raw := *matcher.Raw
+	curByte := raw[index]
+	if bt == curByte {
+		if index == len(raw)-1 {
+			matcher.IsEnd = true
+			return true, nil
+		}
+		matcher.Index++
+		return false, nil
+	}
+	// allow space
+	if index == matcher.SpaceIndex && unicode.IsSpace(rune(bt)) {
+		return false, nil
+	}
+	return false, fmt.Errorf("the byte '%s' does not match byte '%s'", string(bt), string(curByte))
+}
 
 type TplPath struct {
 	Type    PathType
@@ -112,39 +147,61 @@ func (unkown *Unkown) Type() CodeType {
  *
  */
 type Detect struct {
-	Exp *lexer.Expression
+	Parsed      Bytes
+	ProxyHandle *func(bt byte, parser *Parser) (ICode, error)
+	Exp         *lexer.Expression
+}
+
+func (detect *Detect) HandleMaybeBlockOrBlockFeature(bt byte, parser *Parser) (ICode, error) {
+	return nil, nil
+}
+
+func (detect *Detect) HandleOutput(bt byte, parser *Parser) (ICode, error) {
+	return nil, nil
+}
+
+func (detect *Detect) HandleMaybeOutputOrAssign(bt byte, parser *Parser) (ICode, error) {
+	return nil, nil
 }
 
 func (detect *Detect) Add(bt byte, parser *Parser) (ICode, error) {
-	exp := detect.Exp
-	if exp == nil {
+	handle := detect.ProxyHandle
+	if handle == nil {
+		// ignore whitespace
+		if unicode.IsSpace(rune(bt)) {
+			return nil, nil
+		}
 		// comment code
 		if bt == parser.Config.CommentSymbol {
 			return &Comment{}, nil
 		}
-		if !unicode.IsSpace(rune(bt)) {
-			// judge if block end
-			if bt == '/' {
-				// end block
-				if block, isBlock := parser.CurCode.(*Block); isBlock {
-					// block.End = &BlockEnd{
-					// 	Name: block.Name,
-					// }
-					// return block.End, nil
-					return nil, nil
-				}
-				// wrong end block
-				return nil, fmt.Errorf("wrong block end /")
+		// block end
+		if bt == '/' {
+			// end block
+			if block, isBlock := parser.CurCode.(*Block); isBlock {
+				*handle = block.AddEnd
+				return nil, nil
 			}
-			detect.Exp = lexer.New()
-		} else {
-			// whitespace, need detect again
-			return nil, nil
+			// wrong end block
+			return nil, fmt.Errorf("wrong block end /")
 		}
-	} else {
-
+		// detect which handle should use
+		if utils.IsEnLetterByte(bt) {
+			// maybe block/block feature
+			*handle = detect.HandleMaybeBlockOrBlockFeature
+		} else {
+			// parse into expression
+			detect.Exp = lexer.New()
+			if bt == '$' {
+				// maybe output or assignment
+				*handle = detect.HandleMaybeOutputOrAssign
+			} else {
+				// must be output
+				*handle = detect.HandleOutput
+			}
+		}
 	}
-	return nil, nil
+	return (*handle)(bt, parser)
 }
 
 func (_ *Detect) Type() CodeType {
@@ -170,11 +227,11 @@ type BuiltInPropParser struct {
 }
 
 type RegisterBlockFeature struct {
-	Once   bool  // only allowed appear once
-	Last   bool  // only allowed appear at last feature
-	Name   Bytes // feature block name
-	Alias  Bytes // feature block alias name, if exists
-	Parser IParser
+	Once       bool  // only allowed appear once
+	Last       bool  // only allowed appear at last feature
+	SpaceIndex int   // if allow whitespace in keywords e.g. else if => elseif
+	Name       Bytes // feature block name
+	Parser     IParser
 }
 type BlockFeature struct {
 	Meta *RegisterBlockFeature
@@ -191,8 +248,10 @@ type RegisterBlock struct {
 }
 
 type Block struct {
-	Meta *RegisterBlock
-	Node *LinkedNode
+	NameEnded bool
+	Meta      *RegisterBlock
+	Node      *LinkedNode
+	End       *BytesMatcher
 }
 
 func (block *Block) Add(bt byte, parser *Parser) (ICode, error) {
@@ -202,6 +261,27 @@ func (block *Block) Add(bt byte, parser *Parser) (ICode, error) {
 
 func (_ *Block) Type() CodeType {
 	return BlockCode
+}
+
+func (block *Block) AddEnd(bt byte, parser *Parser) (ICode, error) {
+	isEnd, err := block.End.Match(bt)
+	if err != nil {
+		return block, fmt.Errorf("wrong end block ''")
+	}
+	// the block name is ended or the block is closed
+	if isEnd {
+		if block.NameEnded {
+			// the block is closed
+
+		} else {
+			// the block name end
+			block.NameEnded = true
+			// next should be right delimiter
+			// and allow the beginning bytes are spaces
+			block.End = createBytesMatcher(&parser.Config.RightDelimiter, 0)
+		}
+	}
+	return nil, nil
 }
 
 type BlockEnd struct {
