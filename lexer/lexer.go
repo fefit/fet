@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/fefit/fet/utils"
 )
 
 type TokenType uint8
@@ -58,25 +59,9 @@ const (
  */
 func IsBytesInBytesList(bts []byte, btsList [][]byte) bool {
 	for _, kw := range btsList {
-		if IsSameBytes(bts, kw) {
+		if utils.IsSameBytes(bts, kw) {
 			return true
 		}
-	}
-	return false
-}
-
-/**
- * same bytes
- */
-func IsSameBytes(a []byte, b []byte) bool {
-	total := len(a)
-	if total == len(b) {
-		for i := 0; i < total; i++ {
-			if a[i] != b[i] {
-				return false
-			}
-		}
-		return true
 	}
 	return false
 }
@@ -264,7 +249,7 @@ type Operator struct {
 
 func (op *Operator) FixIfUnary(prevToken IToken) (*Operator, error) {
 	nextOp := op.NextMaybe
-	if nextOp != nil && IsSameBytes(op.Raw, nextOp.Raw) {
+	if nextOp != nil && utils.IsSameBytes(op.Raw, nextOp.Raw) {
 		prevType := prevToken.Type()
 		if prevType == SpaceType {
 			// at the beginning of the expression

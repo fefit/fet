@@ -2,7 +2,6 @@ package fet
 
 import (
 	"fmt"
-	"unicode"
 
 	"github.com/fefit/fet/lexer"
 	"github.com/fefit/fet/utils"
@@ -65,7 +64,7 @@ func (matcher *BytesMatcher) Match(bt byte) (bool, error) {
 		return false, nil
 	}
 	// allow space
-	if index == matcher.SpaceIndex && unicode.IsSpace(rune(bt)) {
+	if index == matcher.SpaceIndex && utils.IsSpaceByte(bt) {
 		return false, nil
 	}
 	return false, fmt.Errorf("the byte '%s' does not match byte '%s'", string(bt), string(curByte))
@@ -81,6 +80,7 @@ type Config struct {
 	LeftDelimiter  Bytes
 	RightDelimiter Bytes
 	CommentSymbol  byte
+	RegisterBlocks []*RegisterBlock
 }
 
 type Engine interface {
@@ -149,10 +149,71 @@ func (unkown *Unkown) Type() CodeType {
 type Detect struct {
 	Parsed      Bytes
 	ProxyHandle *func(bt byte, parser *Parser) (ICode, error)
-	Exp         *lexer.Expression
+	Code        ICode
+	EndMatched  int
 }
 
 func (detect *Detect) HandleMaybeBlockOrBlockFeature(bt byte, parser *Parser) (ICode, error) {
+	// maybe block names
+	if lexer.IsAlphaByte(bt) {
+		detect.Parsed = append(detect.Parsed, bt)
+		return nil, nil
+	}
+	// maybe block
+	endDelim := parser.Config.RightDelimiter
+	endMatched := detect.EndMatched
+	isEnd := false
+	if bt == endDelim[detect.EndMatched] {
+		detect.EndMatched++
+		isEnd = detect.EndMatched == len(endDelim)
+	} else {
+		detectedCode := detect.Code
+		if detectedCode != nil {
+			// has detected the code type
+			if endMatched > 0 {
+				for _, endBt := range endDelim[:endMatched] {
+					if curCode, err := detectedCode.Add(endBt, parser); err != nil {
+						return curCode, err
+					}
+				}
+				// reset end matched
+				detect.EndMatched = 0
+			}
+			return detectedCode.Add(bt, parser)
+		} else {
+			parsed := detect.Parsed
+			// the first byte
+			var firstByte byte
+			if endMatched > 0 {
+				firstByte = endDelim[0]
+			} else {
+				firstByte = bt
+			}
+			// step1: check if block name
+			if registerBlock := parser.MatchBlock(parsed); registerBlock != nil {
+				// block
+				maybeBlock := &Block{
+					Meta: registerBlock,
+				}
+				// add next byte after block name
+				if curCode, err := maybeBlock.Add(firstByte, parser); err == nil {
+					// match the block
+					if endMatched > 0 {
+
+					}
+				} else {
+					// take it as output
+
+				}
+			} else if utils.IsSpaceByte(firstByte) {
+				// maybe block feature
+				if block, isBlock := parser.CurCode.(*Block); isBlock && len(block.Meta.Features) > 0 {
+
+				}
+			}
+		}
+	}
+
 	return nil, nil
 }
 
@@ -168,7 +229,7 @@ func (detect *Detect) Add(bt byte, parser *Parser) (ICode, error) {
 	handle := detect.ProxyHandle
 	if handle == nil {
 		// ignore whitespace
-		if unicode.IsSpace(rune(bt)) {
+		if utils.IsSpaceByte(bt) {
 			return nil, nil
 		}
 		// comment code
@@ -191,7 +252,6 @@ func (detect *Detect) Add(bt byte, parser *Parser) (ICode, error) {
 			*handle = detect.HandleMaybeBlockOrBlockFeature
 		} else {
 			// parse into expression
-			detect.Exp = lexer.New()
 			if bt == '$' {
 				// maybe output or assignment
 				*handle = detect.HandleMaybeOutputOrAssign
@@ -394,6 +454,15 @@ type Parser struct {
 	Unkown  *Unkown // Unkown code
 	Detect  *Detect // Detect block/assign/output
 	CurCode ICode   // Current code
+}
+
+func (parser *Parser) MatchBlock(name []byte) *RegisterBlock {
+	for _, block := range parser.Config.RegisterBlocks {
+		if utils.IsSameBytes(block.Name, name) {
+			return block
+		}
+	}
+	return nil
 }
 
 func (parser *Parser) Parse(bt byte) error {
