@@ -154,18 +154,15 @@ type Detect struct {
 }
 
 func (detect *Detect) HandleMaybeBlockOrBlockFeature(bt byte, parser *Parser) (ICode, error) {
-	// maybe block names
-	if lexer.IsAlphaByte(bt) {
-		detect.Parsed = append(detect.Parsed, bt)
-		return nil, nil
-	}
-	// maybe block
+	// always first check if the end right delimiter
 	endDelim := parser.Config.RightDelimiter
 	endMatched := detect.EndMatched
-	isEnd := false
 	if bt == endDelim[detect.EndMatched] {
 		detect.EndMatched++
-		isEnd = detect.EndMatched == len(endDelim)
+		// match the right end delimiter
+		if detect.EndMatched == len(endDelim) {
+
+		}
 	} else {
 		detectedCode := detect.Code
 		if detectedCode != nil {
@@ -181,6 +178,12 @@ func (detect *Detect) HandleMaybeBlockOrBlockFeature(bt byte, parser *Parser) (I
 			}
 			return detectedCode.Add(bt, parser)
 		} else {
+			// maybe block names
+			if lexer.IsAlphaByte(bt) {
+				detect.Parsed = append(detect.Parsed, bt)
+				return nil, nil
+			}
+			// check first byte
 			parsed := detect.Parsed
 			// the first byte
 			var firstByte byte
@@ -191,7 +194,7 @@ func (detect *Detect) HandleMaybeBlockOrBlockFeature(bt byte, parser *Parser) (I
 			}
 			// step1: check if block name
 			if registerBlock := parser.MatchBlock(parsed); registerBlock != nil {
-				// block
+				// maybe block
 				maybeBlock := &Block{
 					Meta: registerBlock,
 				}
@@ -199,16 +202,16 @@ func (detect *Detect) HandleMaybeBlockOrBlockFeature(bt byte, parser *Parser) (I
 				if curCode, err := maybeBlock.Add(firstByte, parser); err == nil {
 					// match the block
 					if endMatched > 0 {
-
 					}
 				} else {
 					// take it as output
-
 				}
-			} else if utils.IsSpaceByte(firstByte) {
+			} else if block, isBlock := parser.CurCode.(*Block); isBlock && len(block.Meta.Features) > 0 {
 				// maybe block feature
-				if block, isBlock := parser.CurCode.(*Block); isBlock && len(block.Meta.Features) > 0 {
-
+				for _, feature := range block.Meta.Features {
+					if utils.IsSameBytes(parsed, feature.Name) {
+						// match feature
+					}
 				}
 			}
 		}
