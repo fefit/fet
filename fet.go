@@ -120,8 +120,9 @@ func (unkown *Unkown) Add(bt byte, parser *Parser) (ICode, error) {
 	index := unkown.Matched
 	if bt == leftDelim[index] {
 		if index == len(leftDelim)-1 {
+			parser.CurCode = &Detect{}
 			// matched all the left delimiter
-			return parser.Detect, nil
+			return parser.CurCode, nil
 		}
 		// increase the matched count
 		unkown.Matched++
@@ -151,72 +152,27 @@ type Detect struct {
 	ProxyHandle *func(bt byte, parser *Parser) (ICode, error)
 	Code        ICode
 	EndMatched  int
+	MaybeBlocks []*RegisterBlockFeature
 }
 
 func (detect *Detect) HandleMaybeBlockOrBlockFeature(bt byte, parser *Parser) (ICode, error) {
-	// always first check if the end right delimiter
-	endDelim := parser.Config.RightDelimiter
-	endMatched := detect.EndMatched
-	if bt == endDelim[detect.EndMatched] {
-		detect.EndMatched++
-		// match the right end delimiter
-		if detect.EndMatched == len(endDelim) {
-
-		}
-	} else {
-		detectedCode := detect.Code
-		if detectedCode != nil {
-			// has detected the code type
-			if endMatched > 0 {
-				for _, endBt := range endDelim[:endMatched] {
-					if curCode, err := detectedCode.Add(endBt, parser); err != nil {
-						return curCode, err
-					}
-				}
-				// reset end matched
-				detect.EndMatched = 0
-			}
-			return detectedCode.Add(bt, parser)
-		} else {
-			// maybe block names
-			if lexer.IsAlphaByte(bt) {
-				detect.Parsed = append(detect.Parsed, bt)
-				return nil, nil
-			}
-			// check first byte
-			parsed := detect.Parsed
-			// the first byte
-			var firstByte byte
-			if endMatched > 0 {
-				firstByte = endDelim[0]
-			} else {
-				firstByte = bt
-			}
-			// step1: check if block name
-			if registerBlock := parser.MatchBlock(parsed); registerBlock != nil {
-				// maybe block
-				maybeBlock := &Block{
-					Meta: registerBlock,
-				}
-				// add next byte after block name
-				if curCode, err := maybeBlock.Add(firstByte, parser); err == nil {
-					// match the block
-					if endMatched > 0 {
-					}
-				} else {
-					// take it as output
-				}
-			} else if block, isBlock := parser.CurCode.(*Block); isBlock && len(block.Meta.Features) > 0 {
-				// maybe block feature
-				for _, feature := range block.Meta.Features {
-					if utils.IsSameBytes(parsed, feature.Name) {
-						// match feature
-					}
-				}
-			}
-		}
+	// detect all letters
+	if utils.IsEnLetterByte(bt) {
+		detect.Parsed = append(detect.Parsed, bt)
+		return nil, nil
 	}
+	// first, check if is a block
+	if regBlock := parser.MatchBlock(detect.Parsed); regBlock != nil {
+		// find matched block
+		*detect.ProxyHandle = detect.HandleBlock
+		return detect.HandleBlock(bt, parser)
+	}
+	// second, check if is a block feature
 
+	return nil, nil
+}
+
+func (detect *Detect) HandleBlock(bt byte, parser *Parser) (ICode, error) {
 	return nil, nil
 }
 
@@ -242,8 +198,8 @@ func (detect *Detect) Add(bt byte, parser *Parser) (ICode, error) {
 		// block end
 		if bt == '/' {
 			// end block
-			if block, isBlock := parser.CurCode.(*Block); isBlock {
-				*handle = block.AddEnd
+			if parser.CurBlock != nil {
+				*handle = parser.CurBlock.AddEnd
 				return nil, nil
 			}
 			// wrong end block
@@ -453,10 +409,10 @@ type Template struct {
  *
  */
 type Parser struct {
-	Config  *Config // Config
-	Unkown  *Unkown // Unkown code
-	Detect  *Detect // Detect block/assign/output
-	CurCode ICode   // Current code
+	Config   *Config  // config
+	CurCode  ICode    // current code
+	CurBlock *Block   // current block
+	Blocks   []*Block // block chains
 }
 
 func (parser *Parser) MatchBlock(name []byte) *RegisterBlock {

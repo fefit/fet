@@ -78,13 +78,6 @@ func IsSpaceToken(token IToken) bool {
 }
 
 /**
- *
- */
-func IsAlphaByte(bt byte) bool {
-	return (bt >= 'a' && bt <= 'z') || (bt >= 'A' && bt <= 'Z')
-}
-
-/**
  * number byte functions
  */
 func IsDecimalByte(bt byte) bool {
@@ -781,7 +774,7 @@ func (id *IdentifierToken) Add(bt byte, exp *Expression) (IToken, error) {
 		if bt == '$' {
 			id.IsVar = true
 		} else {
-			if bt == BYTE_UNDERSCORE || IsAlphaByte(bt) {
+			if bt == BYTE_UNDERSCORE || utils.IsEnLetterByte(bt) {
 				// allowed identifier bytes
 			} else {
 				// not an identifier
@@ -789,7 +782,7 @@ func (id *IdentifierToken) Add(bt byte, exp *Expression) (IToken, error) {
 			}
 		}
 	} else {
-		if IsAlphaByte(bt) || IsDecimalByte(bt) || bt == BYTE_UNDERSCORE {
+		if utils.IsEnLetterByte(bt) || IsDecimalByte(bt) || bt == BYTE_UNDERSCORE {
 			// ok
 		} else {
 			// check if it is a variable type and has only one "$" symbol.
